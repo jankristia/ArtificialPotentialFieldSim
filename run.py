@@ -5,13 +5,11 @@ from boat import BoatSimulator
 
 # Environment setup with obstacles and waypoints
 obstacles = [
-    (15, 5, 2),   # (x, y, radius)
-    (22, 8, 1.5),
-    (25, 3, 3),
-    (35, 7, 2)
+    (15, 7, 2),   # (x, y, radius)
+    (15, 14, 2),
 ]  # Circular obstacles in the environment
 
-waypoints = np.array([[10, 5], [20, 10], [30, 5], [40, 10]])
+waypoints = np.array([[10, 5], [44, 12]])
 
 
 # Visualization

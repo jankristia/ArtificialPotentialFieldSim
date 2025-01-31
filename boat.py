@@ -41,6 +41,7 @@ class BoatSimulator:
         self.current_wp_index = 0  # Start with the first waypoint
         self.base_thrust = 2.5  # Base thrust applied to both thrusters
         self.lidar = LidarSimulator(obstacles=obstacles)  # Lidar sensor
+        self.thresh_next_wp = 10.0  # Threshold to switch waypoints
 
     def los_guidance(self):
         """Compute desired heading using Line of Sight (LOS)"""
@@ -53,7 +54,7 @@ class BoatSimulator:
         psi_d = np.arctan2(dy, dx)  # Desired heading
 
         # Switch waypoint if reached
-        if np.hypot(dx, dy) < 2.5:  # Threshold to switch waypoints
+        if np.hypot(dx, dy) < self.thresh_next_wp:
             self.current_wp_index += 1
             if self.current_wp_index < len(self.waypoints):
                 return self.los_guidance()
@@ -84,6 +85,26 @@ class BoatSimulator:
 
         tau = np.array([surge_force, 0, yaw_moment])  # [Fx, Fy, Mz]
         return tau
+    
+    def apf_obstacle_avoidance(self, psi_d):
+        lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2])
+        repulsive_force = np.array([0.0, 0.0])
+
+        for dist, angle in zip(lidar_readings, self.lidar.angles):
+            if dist < self.lidar.max_range:
+                if 0 < dist:
+                    repulsive_force += np.array([
+                        -np.cos(angle) / (dist**2),
+                        -np.sin(angle) / (dist**2)
+                    ])
+                else:
+                    repulsive_force += np.array([-np.cos(angle), -np.sin(angle)])
+        
+        attractive_force = 3*np.array([np.cos(psi_d), np.sin(psi_d)])
+        total_force = attractive_force + repulsive_force
+        psi_d_new = np.arctan2(total_force[1], total_force[0])
+        return psi_d_new
+
 
     def update(self):
         """Simulate boat movement using Fossen's 3-DOF model"""
@@ -91,6 +112,7 @@ class BoatSimulator:
             return  # Stop if all waypoints are reached
 
         psi_d = self.los_guidance()  # Compute desired heading
+        psi_d = self.apf_obstacle_avoidance(psi_d)
         thrust_diff = self.pd_controller(psi_d)  # Compute differential thrust
 
         tau = self.forces(thrust_diff)  # Compute input forces and moments
