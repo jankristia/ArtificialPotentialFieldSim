@@ -1,8 +1,8 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from lidar import LidarSimulator
 
-# Boat parameters (based on Fossen model)
+# Boat Simulator
+# # Boat parameters (based on Fossen model)
 m = 50.0      # Mass of the boat (kg)
 Iz = 10.0     # Moment of inertia (kg.m^2)
 X_u_dot = -5  # Added mass in surge
@@ -30,7 +30,7 @@ D = np.array([
 ])
 
 class BoatSimulator:
-    def __init__(self, waypoints):
+    def __init__(self, waypoints, obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
         self.state = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         self.dt = dt  # Time step
@@ -40,6 +40,7 @@ class BoatSimulator:
         self.waypoints = waypoints
         self.current_wp_index = 0  # Start with the first waypoint
         self.base_thrust = 2.5  # Base thrust applied to both thrusters
+        self.lidar = LidarSimulator(obstacles=obstacles)  # Lidar sensor
 
     def los_guidance(self):
         """Compute desired heading using Line of Sight (LOS)"""
@@ -110,28 +111,3 @@ class BoatSimulator:
         self.state[:3] += d_eta_dt * self.dt  # Update position and heading
         self.state[3:] = nu  # Update velocity state
 
-# Simulation setup
-waypoints = np.array([[10, 5], [20, 10], [30, 5], [35,10]])  # Waypoints
-
-boat = BoatSimulator(waypoints)
-
-# Visualization
-fig, ax = plt.subplots(figsize=(8, 6))
-ax.set_xlim(0, 45)
-ax.set_ylim(0, 15)
-ax.set_title("3-DOF LOS Guidance Simulation (Two Fixed Thrusters)")
-ax.set_xlabel("X Position")
-ax.set_ylabel("Y Position")
-boat_marker, = ax.plot([], [], 'bo', markersize=8, label="Boat")
-wp_markers, = ax.plot(waypoints[:, 0], waypoints[:, 1], 'rx', markersize=10, label="Waypoints")
-trail, = ax.plot([], [], 'b-', linewidth=1)
-
-def animate(i):
-    boat.update()
-    boat_marker.set_data(boat.state[0], boat.state[1])
-    trail.set_data(trail.get_xdata() + [boat.state[0]], trail.get_ydata() + [boat.state[1]])
-    return boat_marker, trail
-
-ani = animation.FuncAnimation(fig, animate, frames=300, interval=50, blit=True)
-plt.legend()
-plt.show()
