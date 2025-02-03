@@ -1,19 +1,19 @@
 import numpy as np
 from lidar import LidarSimulator
+# from scipy.integrate import solve_ivp
 
 # Boat Simulator
 # # Boat parameters (based on Fossen model)
-m = 15.0      # Mass of the boat (kg)
-Iz = 3.87     # Moment of inertia (kg.m^2)
-X_u_dot = -26.77  # Added mass in surge
-Y_v_dot = -7.5579  # Added mass in sway
-N_r_dot = -2.7790  # Added moment of inertia in yaw
-Xu = -29.3484     # Linear damping in surge
-Yv = -51.5469     # Linear damping in sway
-Nr = -44.6517     # Linear damping in yaw
-Y_r = -0.1
-N_v = -0.1
-
+m = 55.0      # Mass of the boat (kg)
+Iz = 8.5     # Moment of inertia (kg.m^2)
+X_u_dot = -30  # Added mass in surge
+Y_v_dot = -25  # Added mass in sway
+N_r_dot = -6  # Added moment of inertia in yaw
+Xu = -40     # Linear damping in surge
+Yv = -65     # Linear damping in sway
+Nr = -50     # Linear damping in yaw
+Y_r = -0.15
+N_v = -0.12
 
 # Model matrices
 M = np.array([
@@ -47,18 +47,20 @@ def Rzyx(phi, theta, psi):
 class BoatSimulator:
     def __init__(self, waypoints, obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
-        self.state = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
+        self.state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         self.dt = 0.1  # Time step
-        self.kp = 35  # PD yaw control proportional gain
-        self.kd = 3  # PD yaw control derivative gain
+        self.kp = 25  # PD yaw control proportional gain
+        self.kd = 2  # PD yaw control derivative gain
         self.prev_error = 0.0  # Previous heading error for PD control
         self.waypoints = waypoints
         self.current_wp_index = 0  # Start with the first waypoint
         self.base_thrust = 30  # Base thrust applied to both thrusters
         self.max_thrust = 100
+        self.min_thrust = -60
         self.d = 0.3       # Distance from centerline to thruster (m)
         self.lidar = LidarSimulator(obstacles=obstacles)  # Lidar sensor
-        self.thresh_next_wp = 5.0  # Threshold to switch waypoints
+        self.thresh_next_wp = 10.0  # Threshold to switch waypoints
+        self.los_lookahead = 25  # Lookahead distance for LOS guidance
 
         # Variables for APF force plotting
         self.repulsive_force = np.array([0.0, 0.0])
@@ -69,17 +71,33 @@ class BoatSimulator:
         """Compute desired heading using Line of Sight (LOS)"""
         if self.current_wp_index >= len(self.waypoints):
             return self.state[2]  # Keep last heading if done
+        
+        x, y = self.state[0], self.state[1]
 
-        wp = self.waypoints[self.current_wp_index]
-        dx = wp[0] - self.state[0]
-        dy = wp[1] - self.state[1]
-        psi_d = np.arctan2(dy, dx)  # Desired heading
+        wp_curr = self.waypoints[self.current_wp_index]
+        wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
+        
+        dx = wp_next[0] - wp_curr[0]
+        dy = wp_next[1] - wp_curr[1]
+        path_length = np.hypot(dx, dy)
 
-        # Switch waypoint if reached
-        if np.hypot(dx, dy) < self.thresh_next_wp:
+        if path_length < 1e-6:
+            return np.arctan2(dy, dx)  # Avoid division by zero
+        
+        t = ((x - wp_curr[0]) * dx + (y - wp_curr[1]) * dy) / path_length**2
+        t = np.clip(t, 0, 1)  # Limit t to [0, 1] for interpolation
+
+        closest_x = wp_curr[0] + t * dx
+        closest_y = wp_curr[1] + t * dy
+
+        lookahead_x = closest_x + self.los_lookahead * dx / path_length
+        lookahead_y = closest_y + self.los_lookahead * dy / path_length
+
+        # Compute desired heading
+        psi_d = np.arctan2(lookahead_y - y, lookahead_x - x)
+
+        if np.hypot(x-wp_next[0], y-wp_next[1]) < self.thresh_next_wp:
             self.current_wp_index += 1
-            if self.current_wp_index < len(self.waypoints):
-                return self.los_guidance()
 
         return psi_d
 
@@ -90,16 +108,17 @@ class BoatSimulator:
         d_error = (error - self.prev_error) / self.dt
         thrust_diff = self.kp * error + self.kd * d_error  # PD control output
         self.prev_error = error
-        return np.clip(thrust_diff, -self.max_thrust, self.max_thrust)  # Limit thrust difference
+        return thrust_diff
 
     def forces(self, thrust_diff):
         """Compute forces and moments from two thrusters"""
         T_left = self.base_thrust + thrust_diff  # Left thruster
         T_right = self.base_thrust - thrust_diff  # Right thruster
 
-        # Clip thrust to prevent negative values
-        T_left = np.clip(T_left, 0, self.max_thrust)
-        T_right = np.clip(T_right, 0, self.max_thrust)
+        T_left = np.clip(T_left, self.min_thrust, self.max_thrust)
+        T_right = np.clip(T_right, self.min_thrust, self.max_thrust)
+
+        print(f"Thrust left: {thrust_diff} Thrust right: {T_right}")
 
         # Compute forces and moment
         surge_force = T_left + T_right  # Total forward force
@@ -134,6 +153,7 @@ class BoatSimulator:
         eta_dot = Rzyx(0, 0, psi) @ nu  # Transform velocities to body frame
         nu_dot = np.linalg.inv(M) @ (tau - N(nu) @ nu)  # Acceleration in body frame
         state_dot = np.concatenate([eta_dot, nu_dot])  # Combine position and velocity
+        # print(f"State dot: {state_dot}")
         return state_dot
 
 
@@ -150,6 +170,9 @@ class BoatSimulator:
         tau = self.forces(thrust_diff)  # Compute input forces and moments
         state_dot = self.state_dot(tau)
         
-        self.state[:3] += state_dot[:3] * self.dt  # Update position and heading
-        self.state[3:] += state_dot[3:] * self.dt  # Update velocity state
+        # self.state[:3] += state_dot[:3] * self.dt  # Update position and heading
+        # self.state[3:] += state_dot[3:] * self.dt  # Update velocity state
+        self.state[3:] += state_dot[3:] * self.dt  # Update velocity state first
+        self.state[:3] += Rzyx(0, 0, self.state[2]) @ self.state[3:] * self.dt  # Update position using new velocity
+
 

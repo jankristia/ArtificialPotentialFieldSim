@@ -5,7 +5,7 @@ from boat import BoatSimulator
 
 # Environment setup with obstacles and waypoints
 obstacles = [(35, 30, 2)]  # Circular obstacles in the environment
-waypoints = np.array([[10, 10], [50, 50]])  # Waypoints to follow
+waypoints = np.array([[10, 10], [55,55]])  # Waypoints to follow
 
 # Visualization
 fig, ax = plt.subplots(figsize=(10, 10))
