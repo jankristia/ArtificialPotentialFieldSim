@@ -124,6 +124,15 @@ def animate(i):
         end_y = boat.state[1] + dist * np.sin(angle)
         lidar_lines[j].set_data([boat.state[0], end_x], [boat.state[1], end_y])
 
+        if dist > 12:
+            lidar_lines[j].set_color('g')
+        elif 8 < dist <= 12:
+            lidar_lines[j].set_color('y')
+        elif 4 < dist <= 8:
+            lidar_lines[j].set_color('orange')
+        else:
+            lidar_lines[j].set_color('r')
+
     # Boat heading visualization
     heading_arrow[0].remove()
     heading_arrow[0] = ax.arrow(boat.state[0], boat.state[1], 2 * np.cos(boat.state[2]), 2 * np.sin(boat.state[2]))

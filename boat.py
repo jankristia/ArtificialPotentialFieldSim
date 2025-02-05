@@ -89,24 +89,13 @@ class BoatSimulator:
         
         dx = wp_next[0] - wp_curr[0]
         dy = wp_next[1] - wp_curr[1]
-        path_length = np.hypot(dx, dy)
 
-        if path_length < 1e-6:
-            return np.arctan2(dy, dx)  # Avoid division by zero
-        
-        t = ((x - wp_curr[0]) * dx + (y - wp_curr[1]) * dy) / path_length**2
-        t = np.clip(t, 0, 1)  # Limit t to [0, 1] for interpolation
+        pi_p = np.arctan2(dy, dx)  # Path angle
 
-        closest_x = wp_curr[0] + t * dx
-        closest_y = wp_curr[1] + t * dy
+        cross_track_error = (y - wp_curr[1]) * np.cos(pi_p) - (x - wp_curr[0]) * np.sin(pi_p)
+        self.cross_track_error = cross_track_error
 
-        self.cross_track_error = np.hypot(x - closest_x, y - closest_y)
-
-        lookahead_x = closest_x + self.los_lookahead * dx / path_length
-        lookahead_y = closest_y + self.los_lookahead * dy / path_length
-
-        # Compute desired heading
-        psi_d = np.arctan2(lookahead_y - y, lookahead_x - x)
+        psi_d = pi_p - np.arctan(cross_track_error / self.los_lookahead)
 
         if np.hypot(x-wp_next[0], y-wp_next[1]) < self.thresh_next_wp:
             self.current_wp_index += 1

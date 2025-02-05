@@ -9,7 +9,7 @@ class LidarSimulator:
 
     def sense_obstacles(self, boat_x, boat_y, boat_psi):
         """Simulates Lidar scan by checking distance to obstacles"""
-        distances = np.full(self.num_rays, self.max_range)  # Default: max range
+        distances = np.full(self.num_rays, float(self.max_range))  # Default: max range
 
         for i, angle in enumerate(self.angles):
             ray_angle = boat_psi + angle  # Global ray direction
@@ -33,6 +33,5 @@ class LidarSimulator:
 
                         # Store the closest valid obstacle
                         if 0 < distance_along_ray < distances[i]:
-                            distances[i] = max(distance_along_ray, 0.1)  # Ensure non-negative distances
-                            
+                            distances[i] = max(distance_along_ray, 0.1)  # Ensure non-negative distances                 
         return distances
