@@ -1,10 +1,10 @@
 import numpy as np
 
 class LidarSimulator:
-    def __init__(self, obstacles, max_range=10, num_rays=64):
+    def __init__(self, obstacles, max_range=20, num_rays=64):
         self.max_range = max_range  # Max Lidar range (meters)
         self.num_rays = num_rays  # Number of rays (resolution)
-        self.angles = np.linspace(0, 2*np.pi, num_rays)  # 360° scan
+        self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan
         self.obstacles = obstacles
 
     def sense_obstacles(self, boat_x, boat_y, boat_psi):
