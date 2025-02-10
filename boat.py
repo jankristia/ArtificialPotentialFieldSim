@@ -47,7 +47,7 @@ def Rzyx(phi, theta, psi):
 class BoatSimulator:
     def __init__(self, waypoints, obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
-        self.state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
+        self.state = np.array([0.0, 0.0, 0, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         self.dt = 0.1  # Time step
         self.kp = 25  # PD yaw control proportional gain
         self.kd = 2  # PD yaw control derivative gain
@@ -130,65 +130,102 @@ class BoatSimulator:
 
         tau = np.array([surge_force, 0, yaw_moment])  # [Fx, Fy, Mz]
         return tau
-    
-    def apf_obstacle_avoidance(self, psi_d):
-        lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2])
-        self.repulsive_force = np.array([0.0, 0.0])
-
-        for dist, angle in zip(lidar_readings, self.lidar.angles):
-            if dist < self.lidar.max_range:
-                if 0 < dist:
-                    obstacle_angle = self.state[2] + angle  # Convert to global frame
-                    rep_angle = obstacle_angle + np.pi  # Directly opposite
-                    self.repulsive_force += np.array([
-                        np.cos(rep_angle) / (dist**2) + np.cos(rep_angle) * 0.5,
-                        np.sin(rep_angle) / (dist**2) + np.sin(rep_angle) * 0.5
-                    ])
-        self.attractive_force = 6*np.array([np.cos(psi_d), np.sin(psi_d)])
-        self.total_force = self.attractive_force + self.repulsive_force
-        psi_d_new = np.arctan2(self.total_force[1], self.total_force[0])
-        self.desired_heading = psi_d_new
-        return psi_d_new
  
     def cluster_lidar_data(self):
+        """Clusters LiDAR data into detected obstacles, adding a safety margin to each obstacle."""
+        
         lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2])
         self.obstacle_clusters = []
         prev_dist = None
         dist_diff_threshold = 1.0
         cluster = []
+        safety_margin = 2.0  # Safety margin to consider vessel width
 
         for dist, angle in zip(lidar_readings, self.lidar.angles):
             if dist == self.lidar.max_range:
                 # If a max range value is detected, end the current cluster
                 if cluster:
-                    start_angle = cluster[0][1]
-                    end_angle = cluster[-1][1]
+                    start_angle = cluster[0][1] + self.state[2]
+                    end_angle = cluster[-1][1] + self.state[2]
                     avg_dist = np.mean([point[0] for point in cluster])
-                    self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
+
+                    # **Expand obstacle range to account for the safety margin**
+                    expanded_start = start_angle - np.arctan(safety_margin / avg_dist)
+                    expanded_end = end_angle + np.arctan(safety_margin / avg_dist)
+
+                    self.obstacle_clusters.append((expanded_start, expanded_end, avg_dist - safety_margin))
                     cluster = []  # Start a new cluster after max range
+
                 prev_dist = None  # Reset prev_dist to ensure a new cluster starts properly
                 continue  # Skip adding max range values to clusters
 
             if prev_dist is not None and np.abs(dist - prev_dist) > dist_diff_threshold:
                 # End the current cluster and store it
                 if cluster:
-                    start_angle = cluster[0][1]
-                    end_angle = cluster[-1][1]
+                    start_angle = cluster[0][1] + self.state[2]
+                    end_angle = cluster[-1][1] + self.state[2]
                     avg_dist = np.mean([point[0] for point in cluster])
-                    self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
+
+                    # **Expand obstacle range to account for the safety margin**
+                    expanded_start = start_angle - np.arctan(safety_margin / avg_dist)
+                    expanded_end = end_angle + np.arctan(safety_margin / avg_dist)
+
+                    self.obstacle_clusters.append((expanded_start, expanded_end, avg_dist - safety_margin))
                     cluster = []  # Start a new cluster
-            
+
             # Add the current valid point to the cluster
             cluster.append((dist, angle))
             prev_dist = dist  # Update previous distance
 
         # Add the last cluster if not empty
         if cluster:
-            start_angle = cluster[0][1]
-            end_angle = cluster[-1][1]
+            start_angle = cluster[0][1] + self.state[2]
+            end_angle = cluster[-1][1] + self.state[2]
             avg_dist = np.mean([point[0] for point in cluster])
-            self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
+
+            # **Expand obstacle range to account for the safety margin**
+            expanded_start = start_angle - np.arctan(safety_margin / avg_dist)
+            expanded_end = end_angle + np.arctan(safety_margin / avg_dist)
+
+            self.obstacle_clusters.append((expanded_start, expanded_end, avg_dist - safety_margin))
+
+
+    def cri_obstacle_avoidance(self, psi_d):
+        """Avoid obstacles using Collision Risk Index (CRI) method.
+        Evaluates risk at all LiDAR angles based on:
+        - Deviation from the desired heading (angle risk)
+        - Proximity to obstacles (distance risk)
+        """
+
+        self.cluster_lidar_data()  # Ensure obstacle clusters are updated
+
+        risk_list = []  # Store tuples of (risk, angle)
+        current_angle = self.state[2]
+
+        for dist, angle in zip(self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2]), self.lidar.angles):
+
+            angle_diff = np.abs(np.arctan2(np.sin(psi_d - angle), np.cos(psi_d - angle)))
+            Ra = max(0, 30 * (angle_diff / np.pi))
+
+            Rd = 0
+            for start_angle, end_angle, avg_dist in self.obstacle_clusters:
+                if start_angle <= angle <= end_angle:
+                    Rd = max(0, (20 - avg_dist) * 3)
+                    break
+            
+            Re = np.abs(np.arctan2(np.sin(current_angle - angle), np.cos(current_angle - angle))) * 5
+
+
+            Rt = Rd + Ra + Re
+
+            risk_list.append((Rt, angle))
+
+        best_angle = min(risk_list, key=lambda x: x[0])[1]
+
+        return best_angle# Adjusted heading to minimize collision risk
+
     
+
     def state_dot(self, tau):
         """Compute the derivative of the state vector"""
         nu = self.state[3:]  # Velocity state [u, v, r]
@@ -215,13 +252,11 @@ class BoatSimulator:
             self.reached_goal = True
         if self.check_collision():
             self.collided = True
-
-        psi_d = self.los_guidance()  # Compute desired heading
-        psi_d = self.apf_obstacle_avoidance(psi_d)
+        
+        psi_d = self.los_guidance()
+        # print(f"LOS desired: {psi_d}")
+        psi_d = self.cri_obstacle_avoidance(psi_d)
         thrust_diff = self.pd_controller(psi_d)  # Compute differential thrust
-
-        self.cluster_lidar_data()
-        print(f"Clusters: {self.obstacle_clusters}")
 
         tau = self.forces(thrust_diff)  # Compute input forces and moments
         state_dot = self.state_dot(tau)
