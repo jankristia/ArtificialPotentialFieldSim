@@ -64,6 +64,7 @@ class BoatSimulator:
         self.los_lookahead = 10  # Lookahead distance for LOS guidance
         self.collided = False
         self.reached_goal = False
+        self.obstacle_clusters = []
 
         # Variables for plotting
         self.repulsive_force = np.array([0.0, 0.0])
@@ -148,6 +149,45 @@ class BoatSimulator:
         psi_d_new = np.arctan2(self.total_force[1], self.total_force[0])
         self.desired_heading = psi_d_new
         return psi_d_new
+ 
+    def cluster_lidar_data(self):
+        lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2])
+        self.obstacle_clusters = []
+        prev_dist = None
+        dist_diff_threshold = 1.0
+        cluster = []
+
+        for dist, angle in zip(lidar_readings, self.lidar.angles):
+            if dist == self.lidar.max_range:
+                # If a max range value is detected, end the current cluster
+                if cluster:
+                    start_angle = cluster[0][1]
+                    end_angle = cluster[-1][1]
+                    avg_dist = np.mean([point[0] for point in cluster])
+                    self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
+                    cluster = []  # Start a new cluster after max range
+                prev_dist = None  # Reset prev_dist to ensure a new cluster starts properly
+                continue  # Skip adding max range values to clusters
+
+            if prev_dist is not None and np.abs(dist - prev_dist) > dist_diff_threshold:
+                # End the current cluster and store it
+                if cluster:
+                    start_angle = cluster[0][1]
+                    end_angle = cluster[-1][1]
+                    avg_dist = np.mean([point[0] for point in cluster])
+                    self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
+                    cluster = []  # Start a new cluster
+            
+            # Add the current valid point to the cluster
+            cluster.append((dist, angle))
+            prev_dist = dist  # Update previous distance
+
+        # Add the last cluster if not empty
+        if cluster:
+            start_angle = cluster[0][1]
+            end_angle = cluster[-1][1]
+            avg_dist = np.mean([point[0] for point in cluster])
+            self.obstacle_clusters.append((start_angle, end_angle, avg_dist))
     
     def state_dot(self, tau):
         """Compute the derivative of the state vector"""
@@ -179,6 +219,9 @@ class BoatSimulator:
         psi_d = self.los_guidance()  # Compute desired heading
         psi_d = self.apf_obstacle_avoidance(psi_d)
         thrust_diff = self.pd_controller(psi_d)  # Compute differential thrust
+
+        self.cluster_lidar_data()
+        print(f"Clusters: {self.obstacle_clusters}")
 
         tau = self.forces(thrust_diff)  # Compute input forces and moments
         state_dot = self.state_dot(tau)

@@ -8,7 +8,7 @@ from render import Render
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("simple_path")
+scenario = ScenarioGenerator("two_obstacles")
 waypoints, obstacles = scenario.get_scenario()
 
 render = Render(waypoints, obstacles)
