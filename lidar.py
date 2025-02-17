@@ -1,37 +1,46 @@
 import numpy as np
 
 class LidarSimulator:
-    def __init__(self, obstacles, max_range=20, num_rays=64):
+    def __init__(self, obstacles, max_range=20, num_rays=128):
         self.max_range = max_range  # Max Lidar range (meters)
         self.num_rays = num_rays  # Number of rays (resolution)
         self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan
         self.obstacles = obstacles
 
+    def ray_circle_intersection(self, ray_origin, ray_dir, circle_center, circle_radius):
+        """ Computes the intersection of a ray with a circular obstacle """
+        oc = ray_origin - circle_center
+        a = np.dot(ray_dir, ray_dir)
+        b = 2.0 * np.dot(oc, ray_dir)
+        c = np.dot(oc, oc) - circle_radius**2
+        
+        discriminant = b**2 - 4*a*c
+        if discriminant < 0:
+            return None  # No intersection
+        
+        t1 = (-b - np.sqrt(discriminant)) / (2*a)
+        t2 = (-b + np.sqrt(discriminant)) / (2*a)
+        
+        if t1 > 0 and t1 < self.max_range:
+            return t1  # Entry point
+        elif t2 > 0 and t2 < self.max_range:
+            return t2  # Exit point
+        return None
+    
     def sense_obstacles(self, boat_x, boat_y, boat_psi):
-        """Simulates Lidar scan by checking distance to obstacles"""
+        """ Simulates LiDAR scan by checking exact intersection points with obstacles """
         distances = np.full(self.num_rays, float(self.max_range))  # Default: max range
-
+        ray_origin = np.array([boat_x, boat_y])
+        
         for i, angle in enumerate(self.angles):
-            ray_angle = boat_psi + angle  # Global ray direction
-
+            ray_angle = angle + boat_psi
+            ray_dir = np.array([np.cos(ray_angle), np.sin(ray_angle)])
+            
             for obs_x, obs_y, obs_r in self.obstacles:
-                dx, dy = obs_x - boat_x, obs_y - boat_y
-                distance_to_center = np.hypot(dx, dy)
-                angle_to_center = np.arctan2(dy, dx)
-
-                # Compute the signed angular difference
-                angle_diff = np.arctan2(np.sin(angle_to_center - ray_angle), np.cos(angle_to_center - ray_angle))
-
-                # Ensure the obstacle is in front of the Lidar ray (within ±90 degrees)
-                if abs(angle_diff) < np.pi / 2:
-                    # Compute shortest distance along the ray
-                    perpendicular_distance = abs(distance_to_center * np.sin(angle_diff))
-
-                    if perpendicular_distance < obs_r:
-                        # Compute distance to the edge of the obstacle along the ray
-                        distance_along_ray = np.sqrt(distance_to_center**2 - perpendicular_distance**2) - obs_r
-
-                        # Store the closest valid obstacle
-                        if 0 < distance_along_ray < distances[i]:
-                            distances[i] = max(distance_along_ray, 0.1)  # Ensure non-negative distances                 
+                circle_center = np.array([obs_x, obs_y])
+                intersection = self.ray_circle_intersection(ray_origin, ray_dir, circle_center, obs_r)
+                
+                if intersection is not None:
+                    distances[i] = min(distances[i], intersection)
+                    
         return distances

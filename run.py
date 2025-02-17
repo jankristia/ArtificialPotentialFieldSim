@@ -8,7 +8,7 @@ from render import Render
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("simple_path")            # ("two_obstacles")
+scenario = ScenarioGenerator("complex_obstacles")            # ("one_large_obstacle") ("one_small_obstacle") ("two_obstacles") ("complex_obstacles")
 waypoints, obstacles = scenario.get_scenario()
 
 render = Render(waypoints, obstacles)
@@ -20,8 +20,6 @@ def animate(i):
             print("Simulation ended: Boat collided with an obstacle.")
         elif boat.reached_goal:
             print("Simulation ended: Boat reached final waypoint.")
-        else:
-            print("Simulation ended by weird cause...")
 
         ani.event_source.stop()
         
