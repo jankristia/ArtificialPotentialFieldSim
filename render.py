@@ -22,19 +22,17 @@ class Render:
         self.boat_marker = plt.Circle((0, 0), 1, color='b', alpha=0.5)
         self.ax.add_patch(self.boat_marker)
         self.trail, = self.ax.plot([], [], 'b-', linewidth=1)
-        self.lidar_lines = [self.ax.plot([], [], 'g-', alpha=0.3)[0] for _ in range(72)]
+        self.lidar_lines = [self.ax.plot([], [], 'g-', alpha=0.3)[0] for _ in range(128)]    # Must be the same as num_rays in lidar.py
         self.heading_arrow = [self.ax.arrow(0, 0, 0, 0, head_width=1, color='b')]
-        self.force_arrows = []
         self.trajectory_x = []
         self.trajectory_y = []
+        self.obstacle_patches = []
 
         self.legend_handles = [
             plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='b', marker='o', markersize=8, lw=0, label="Boat"),
-            plt.Line2D([0], [0], color='g', lw=2, label="Repulsive Force"),
-            plt.Line2D([0], [0], color='b', lw=2, label="Attractive Force"),
-            plt.Line2D([0], [0], color='m', lw=2, label="Total Force"),
             plt.Line2D([0], [0], color='b', lw=2, label="Boat Heading"),
+            plt.Line2D([0], [0], color='purple', lw=2, label="Detected Obstacles"),
         ]
 
         self.ax.legend(handles=self.legend_handles, loc='upper right')
@@ -67,31 +65,23 @@ class Render:
         # Update heading arrow
         self.heading_arrow[0].remove()
         self.heading_arrow[0] = self.ax.arrow(boat.state[0], boat.state[1], 2 * np.cos(boat.state[2]), 2 * np.sin(boat.state[2]))
+
+        # Update detected obstacle clusters
+        for patch in self.obstacle_patches:
+            patch.remove()
+        self.obstacle_patches.clear()
+
+        for start_angle, end_angle, avg_dist in boat.obstacle_clusters:
+            arc_points = np.linspace(start_angle, end_angle, 10)
+            arc_x = boat.state[0] + avg_dist * np.cos(arc_points)
+            arc_y = boat.state[1] + avg_dist * np.sin(arc_points)
+            patch, = self.ax.plot(arc_x, arc_y, 'purple', linewidth=2)
+            self.obstacle_patches.append(patch)
         
-        # Delete previous force arrows
-        for arrow in self.force_arrows:
-            arrow.remove()
-        self.force_arrows.clear()
-
-        # APF force visualization
-        scale = 1  # Scaling factor for visualization
-        rep_arrow = self.ax.arrow(boat.state[0], boat.state[1], scale * boat.repulsive_force[0], scale * boat.repulsive_force[1],
-                                 head_width=0.5, color='g')
-        att_arrow = self.ax.arrow(boat.state[0], boat.state[1], scale * boat.attractive_force[0], scale * boat.attractive_force[1],
-                                 head_width=0.5, color='b')
-        tot_arrow = self.ax.arrow(boat.state[0], boat.state[1], scale * boat.total_force[0], scale * boat.total_force[1],
-                                 head_width=0.5, color='m')
-
-        self.force_arrows.extend([rep_arrow, att_arrow, tot_arrow])
-
-        return self.boat_marker, self.trail, self.lidar_lines + self.heading_arrow + self.force_arrows
+        return self.boat_marker, self.trail, self.lidar_lines + self.heading_arrow
     
     def prepare_plot_for_saving(self):
         """Prepare the plot for saving by removing force arrows and legend."""
-        for arrow in self.force_arrows:
-            arrow.remove()
-        self.force_arrows.clear()
-
         for line in self.lidar_lines:
             line.set_data([], [])
 
