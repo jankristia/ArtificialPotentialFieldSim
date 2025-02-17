@@ -1,11 +1,12 @@
 import numpy as np
 
 class LidarSimulator:
-    def __init__(self, obstacles, max_range=20, num_rays=128):
+    def __init__(self, static_obstacles, max_range=20, num_rays=128):
         self.max_range = max_range  # Max Lidar range (meters)
         self.num_rays = num_rays  # Number of rays (resolution)
         self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan
-        self.obstacles = obstacles
+        self.static_obstacles = static_obstacles
+        self.obstacles = []
 
     def ray_circle_intersection(self, ray_origin, ray_dir, circle_center, circle_radius):
         """ Computes the intersection of a ray with a circular obstacle """
@@ -27,10 +28,13 @@ class LidarSimulator:
             return t2  # Exit point
         return None
     
-    def sense_obstacles(self, boat_x, boat_y, boat_psi):
+    def sense_obstacles(self, boat_x, boat_y, boat_psi, moving_obstacles=[]):
         """ Simulates LiDAR scan by checking exact intersection points with obstacles """
         distances = np.full(self.num_rays, float(self.max_range))  # Default: max range
         ray_origin = np.array([boat_x, boat_y])
+
+
+        self.obstacles = self.static_obstacles + [(obs.x, obs.y, obs.radius) for obs in moving_obstacles]
         
         for i, angle in enumerate(self.angles):
             ray_angle = angle + boat_psi

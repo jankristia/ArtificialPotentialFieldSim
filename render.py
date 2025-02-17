@@ -27,17 +27,17 @@ class Render:
         self.trajectory_x = []
         self.trajectory_y = []
         self.obstacle_patches = []
+        self.moving_obstacle_patches = []
 
         self.legend_handles = [
             plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='b', marker='o', markersize=8, lw=0, label="Boat"),
             plt.Line2D([0], [0], color='b', lw=2, label="Boat Heading"),
-            plt.Line2D([0], [0], color='purple', lw=2, label="Detected Obstacles"),
+            plt.Line2D([0], [0], color='purple', lw=2, label="Detected Obstacles")
         ]
 
         self.ax.legend(handles=self.legend_handles, loc='upper right')
 
-    
     def update_plot(self, boat):
         """Update the plot with new boat position, lidar data, and forces."""
         self.boat_marker.set_center((boat.state[0], boat.state[1]))
@@ -46,7 +46,7 @@ class Render:
         self.trail.set_data(self.trajectory_x, self.trajectory_y)
         
         # Update lidar visualization
-        distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2])
+        distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2], boat.moving_obstacles)
         for j, (dist, line) in enumerate(zip(distances, boat.lidar.angles)):
             angle = boat.state[2] + line
             end_x = boat.state[0] + dist * np.cos(angle)
@@ -77,6 +77,17 @@ class Render:
             arc_y = boat.state[1] + avg_dist * np.sin(arc_points)
             patch, = self.ax.plot(arc_x, arc_y, 'purple', linewidth=2)
             self.obstacle_patches.append(patch)
+        
+        # Update moving obstacles
+        for patch in self.moving_obstacle_patches:
+            patch.remove()
+
+        self.moving_obstacle_patches.clear()
+
+        for obs in boat.moving_obstacles:
+            circle = plt.Circle((obs.x, obs.y), obs.radius, color='orange', alpha=0.5)
+            self.ax.add_patch(circle)
+            self.moving_obstacle_patches.append(circle)
         
         return self.boat_marker, self.trail, self.lidar_lines + self.heading_arrow
     

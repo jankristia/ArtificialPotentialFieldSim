@@ -1,5 +1,6 @@
 import numpy as np
 from lidar import LidarSimulator
+from moving_obstacle import MovingObstacle
 # from scipy.integrate import solve_ivp
 
 # Boat Simulator
@@ -45,7 +46,7 @@ def Rzyx(phi, theta, psi):
     ])
 
 class BoatSimulator:
-    def __init__(self, waypoints, obstacles):
+    def __init__(self, waypoints, obstacles, moving_obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
         self.state = np.array([0.0, 0.0, 0, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         self.dt = 0.1  # Time step
@@ -60,17 +61,16 @@ class BoatSimulator:
         self.radius = 1.0  # Radius of the boat (m)
         self.safety_distance = 1.0  # Safety distance from obstacles (m)
         self.thruster_arm = 0.3       # Distance from centerline to thruster (m)
-        self.lidar = LidarSimulator(obstacles=obstacles)  # Lidar sensor
+        self.lidar = LidarSimulator(static_obstacles=obstacles)
         self.thresh_next_wp = 10.0  # Threshold to switch waypoints
         self.los_lookahead = 25  # Lookahead distance for LOS guidance
         self.collided = False
         self.reached_goal = False
         self.obstacle_clusters = []
+        self.static_obstacles = obstacles
+        self.moving_obstacles = moving_obstacles
 
         # Variables for plotting
-        self.repulsive_force = np.array([0.0, 0.0])
-        self.attractive_force = np.array([0.0, 0.0])
-        self.total_force = np.array([0.0, 0.0])
         self.thrust_diff = 0.0
         self.thrust_left = 0.0
         self.thrust_right = 0.0
@@ -135,7 +135,7 @@ class BoatSimulator:
     def cluster_lidar_data(self):
         """Clusters LiDAR data into detected obstacles, adding a safety margin to each obstacle."""
     
-        lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2])
+        lidar_readings = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2], self.moving_obstacles)
         self.obstacle_clusters = []
         prev_dist = None
         dist_diff_threshold = 1.0
@@ -150,10 +150,9 @@ class BoatSimulator:
                 if cluster:
                     
                     avg_dist = np.mean([point[0] for point in cluster])
-                    margin = np.arctan(boat_width / avg_dist)  # Convert safety distance to angular units
-
-                    start_angle = cluster[0][1] # - margin
-                    end_angle = cluster[-1][1] # + margin
+                    
+                    start_angle = cluster[0][1]
+                    end_angle = cluster[-1][1]
                     self.obstacle_clusters.append((start_angle, end_angle, avg_dist))  #  can use avg_dist - self.safety_distance
                     cluster = []  # Reset cluster
 
@@ -166,9 +165,8 @@ class BoatSimulator:
                 # Finish the previous cluster and start a new one
                 if cluster:
                     avg_dist = np.mean([point[0] for point in cluster])
-                    margin = np.arctan(boat_width / avg_dist)  # Convert safety distance to angular units
-                    start_angle = cluster[0][1] # - margin
-                    end_angle = cluster[-1][1] # + margin
+                    start_angle = cluster[0][1]
+                    end_angle = cluster[-1][1]
 
                     self.obstacle_clusters.append((start_angle, end_angle, avg_dist))  #  can use avg_dist - self.safety_distance
                     cluster = []  # Reset cluster
@@ -181,10 +179,8 @@ class BoatSimulator:
         # Final cluster processing
         if cluster:
             avg_dist = np.mean([point[0] for point in cluster])
-            margin = np.arctan(boat_width / avg_dist)
-
-            start_angle = cluster[0][1] # - margin
-            end_angle = cluster[-1][1] # + margin
+            start_angle = cluster[0][1]
+            end_angle = cluster[-1][1]
             self.obstacle_clusters.append((start_angle, end_angle, avg_dist))  #  can use avg_dist - self.safety_distance
 
 
@@ -340,4 +336,7 @@ class BoatSimulator:
         self.state[3:] += state_dot[3:] * self.dt  # Update velocity state first
         self.state[:3] += Rzyx(0, 0, self.state[2]) @ self.state[3:] * self.dt  # Update position using new velocity
 
+        # Update moving obstacles
+        for obs in self.moving_obstacles:
+            obs.update_position(self.dt)
 
