@@ -48,7 +48,7 @@ def Rzyx(phi, theta, psi):
 class BoatSimulator:
     def __init__(self, waypoints, obstacles, moving_obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
-        self.state = np.array([0.0, 0.0, 0, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
+        self.state = np.array([0.0, 0.0, 1/2*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         self.dt = 0.1  # Time step
         self.kp = 35  # PD yaw control proportional gain
         self.kd = 3  # PD yaw control derivative gain
@@ -70,6 +70,11 @@ class BoatSimulator:
         self.static_obstacles = obstacles
         self.moving_obstacles = moving_obstacles
 
+        self.collision_risk = False
+        self.enter_collision_risk_counter = 0
+        self.exit_collision_risk_counter = 0
+        self.collision_scenario = None
+
         # Variables for plotting
         self.thrust_diff = 0.0
         self.thrust_left = 0.0
@@ -89,8 +94,8 @@ class BoatSimulator:
         wp_curr = self.waypoints[self.current_wp_index]
         wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
         
-        dx = wp_next[0] - wp_curr[0]
-        dy = wp_next[1] - wp_curr[1]
+        dx = wp_next[0] - wp_curr[0] # North
+        dy = wp_next[1] - wp_curr[1] # East
 
         pi_p = np.arctan2(dy, dx)  # Path angle
 
@@ -140,7 +145,6 @@ class BoatSimulator:
         prev_dist = None
         dist_diff_threshold = 1.0
         cluster = []
-        boat_width = 2*self.radius
 
         for dist, angle in zip(lidar_readings, self.lidar.angles):
             adjusted_angle = angle + self.state[2]  # Convert to World frame
@@ -171,8 +175,6 @@ class BoatSimulator:
                     self.obstacle_clusters.append((start_angle, end_angle, avg_dist))  #  can use avg_dist - self.safety_distance
                     cluster = []  # Reset cluster
                 
-                # Start new cluster
-                # cluster.append((dist, adjusted_angle))
 
             prev_dist = dist  # Update for next iteration
 
@@ -189,6 +191,7 @@ class BoatSimulator:
         
         merged_clusters = []
         merge_distance_threshold = 4*self.radius  # Maximum allowed gap (meters) between clusters to merge
+        boat_width = 2*self.radius  # Boat width for dynamic safety margin
         
         if not self.obstacle_clusters:
             return  # No clusters detected
@@ -217,9 +220,8 @@ class BoatSimulator:
                 current_cluster[1] = end_angle_next  # Extend end angle
                 current_cluster[2] = min(dist_current, dist_next)  # Use the nearest distance
             else:
-                # Compute dynamic safety margin before saving the cluster
+                # Add dynamic safety margin before saving the cluster
                 avg_dist = current_cluster[2]
-                boat_width = 2 * self.radius  # Boat width (2 * radius)
                 margin = np.arctan(boat_width / avg_dist)  # Dynamic angular margin
 
                 # Apply safety margin
@@ -230,7 +232,6 @@ class BoatSimulator:
         
         # Apply safety margin to the last cluster and append
         avg_dist = current_cluster[2]
-        boat_width = 2 * self.radius
         margin = np.arctan(boat_width / avg_dist)
         current_cluster[0] -= margin
         current_cluster[1] += margin
@@ -241,14 +242,117 @@ class BoatSimulator:
 
     def regulate_base_thrust(self):
         """Regulate the base thrust based on nearby obstacles"""
-        if not self.obstacle_clusters:
-            self.base_thrust = 20  # Default value
-            return
+        is_nearby_obstacle = False
+        for cluster in self.obstacle_clusters:
+            start_angle, end_angle, avg_dist = cluster
+            if avg_dist <= 10:
+                is_nearby_obstacle = True
+                break
+        if is_nearby_obstacle:
+            self.base_thrust = 10
         else:
-            for cluster in self.obstacle_clusters:
-                start_angle, end_angle, avg_dist = cluster
-                if avg_dist <= 10:
-                    self.base_thrust = 10
+            self.base_thrust = 20
+
+    def calculate_relative_pos_velocity(self, obs):
+        """Calculate relative position and velocity of the obstacle"""
+        vessel_pos = np.array([self.state[0], self.state[1]])
+        vessel_vel = np.array([self.state[3], self.state[4]])
+        obs_pos = np.array([obs.x, obs.y])
+        obs_vel = np.array([obs.vx, obs.vy])
+
+        R_full = Rzyx(0, 0, self.state[2])
+        R_2d = R_full[:2, :2]
+        vessel_vel = R_2d @ vessel_vel
+
+        relative_position = obs_pos - vessel_pos
+        relative_velocity = obs_vel - vessel_vel
+
+        return relative_position, relative_velocity
+    
+    def calculate_tcpa_dcpa(self, relative_position, relative_velocity):
+        """Calculate Time to Closest Point of Approach (TCPA) and Distance at Closest Point of Approach (DCPA)"""
+        distance = abs(np.linalg.norm(relative_position))
+        # To only detect obstacles when they are close
+        if distance < 20:
+            tcpa = -np.dot(relative_position, relative_velocity) / (np.linalg.norm(relative_velocity)**2 + 1e-6)
+            dcpa = np.linalg.norm((relative_position[0]*relative_velocity[1] - relative_position[1]*relative_velocity[0]) / (np.linalg.norm(relative_velocity) + 1e-6))
+        else:
+            tcpa = 100
+            dcpa = 100
+        return tcpa, dcpa
+    
+    def determine_collision_risk(self, tcpa, dcpa):
+        """Determine collision risk based on TCPA and DCPA"""
+        if 0 < tcpa  < 20 and 0 < dcpa < 15:
+            return True
+        return False
+    
+    def swich_collision_state(self):
+        """Switches if the vessel should be in a collision state based
+          on TCPA and DCPA to dynamic obstacles"""
+        # NB: Now it assumes to always know the state of the dynamic obstacles, even outside the vision range
+
+        collision_risk_this_step = False
+        for obs in self.moving_obstacles:
+            relative_position, relative_velocity = self.calculate_relative_pos_velocity(obs)
+            tcpa, dcpa = self.calculate_tcpa_dcpa(relative_position, relative_velocity)
+            if self.determine_collision_risk(tcpa, dcpa):
+                collision_risk_this_step = True
+                break
+
+        # Update collision state counters
+        if collision_risk_this_step:
+            self.enter_collision_risk_counter += 1
+            self.exit_collision_risk_counter = 0
+        else:
+            self.exit_collision_risk_counter += 1
+            self.enter_collision_risk_counter = 0
+
+        # Change collision state only after 3 consecutive steps
+        if self.enter_collision_risk_counter >= 3:
+            if not self.collision_risk:
+                print("Entered collision state!")
+                self.collision_scenario = self.classify_collision_scenario()
+                print(f"Collision scenario: {self.collision_scenario}")
+            self.collision_risk = True
+        elif self.exit_collision_risk_counter >= 3:
+            if self.collision_risk:
+                print("Exited collision state!")
+                self.collision_scenario = None
+            self.collision_risk = False
+
+    def classify_collision_scenario(self):
+        """Classify the collision scenario with dynamic obstacles as head-on, crossing, or overtaking."""
+
+        def normalize_angle(angle):
+            # Correctly normalize to [-pi, pi]
+            return (angle + np.pi) % (2 * np.pi) - np.pi
+
+        scenarios = []
+        for obs in self.moving_obstacles:
+            relative_position, _ = self.calculate_relative_pos_velocity(obs)
+            bearing_to_obs = np.arctan2(relative_position[1], relative_position[0])
+            rel_bearing = normalize_angle(bearing_to_obs - self.state[2])
+            rel_bearing_deg = np.degrees(rel_bearing)
+
+            if abs(rel_bearing_deg) < 20:
+                own_velocity = np.array([self.state[3], self.state[4]])
+                obs_velocity = np.array([obs.vx, obs.vy])
+
+                R_full = Rzyx(0, 0, self.state[2])
+                R_2d = R_full[:2, :2]
+                own_velocity = R_2d @ own_velocity
+                if np.dot(own_velocity, obs_velocity) > 0:
+                    scenarios.append("overtaking")
+                else:
+                    scenarios.append("head-on")
+            else:
+                scenarios.append("crossing")
+
+        if len(scenarios) == 1:
+            return scenarios[0]
+        else:
+            return scenarios
 
     def cri_obstacle_avoidance(self, psi_d):
         """Avoid obstacles using Collision Risk Index (CRI) method.
@@ -264,6 +368,11 @@ class BoatSimulator:
         risk_list = []  # Store tuples of (risk, angle)
         current_angle = self.state[2]
 
+        if len(self.moving_obstacles) > 0:
+            obs = self.moving_obstacles[0]
+            relative_position, relative_velocity = self.calculate_relative_pos_velocity(obs)
+            obs_bearing = np.arctan2(relative_position[1], relative_position[0])
+
         for dist, angle in zip(self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2]), self.lidar.angles):
             angle = angle + current_angle
             angle_diff = np.abs(np.arctan2(np.sin(psi_d - angle), np.cos(psi_d - angle)))
@@ -278,12 +387,17 @@ class BoatSimulator:
                 if start_angle <= angle <= end_angle:
                     Rd = max(0, 20 - avg_dist - self.radius)*3  # Prevent negative risk values
                     break
+
             
-            Re = 0 #(np.abs(np.arctan2(np.sin(current_angle - angle), np.cos(current_angle - angle)))) * 0.2
-
-
-            # print(f"Ra: {Ra} Rd: {Rd} Re: {Re}")
-            Rt = Rd + Ra + Re
+            Rb = 0
+            if self.collision_scenario == "head-on":
+                # Add a bearing risk based on the relative bearing to the obstacle
+                diff_bearing = np.arctan2(np.sin(angle - obs_bearing), np.cos(angle - obs_bearing))
+                if diff_bearing > 0:
+                    Rb = 20
+                elif diff_bearing > -np.pi/6:
+                    Rb = 10
+            Rt = Rd + Ra + Rb
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]
@@ -293,8 +407,6 @@ class BoatSimulator:
         best_angle = min(best_angles, key=lambda a: np.abs(np.arctan2(np.sin(psi_d - a), np.cos(psi_d - a))))
 
         return best_angle
-
-    
 
     def state_dot(self, tau):
         """Compute the derivative of the state vector"""
@@ -322,7 +434,9 @@ class BoatSimulator:
             self.reached_goal = True
         if self.check_collision():
             self.collided = True
-        
+
+        self.swich_collision_state()
+
         psi_d = self.los_guidance()
         # print(f"LOS desired: {psi_d}")
         psi_d = self.cri_obstacle_avoidance(psi_d)

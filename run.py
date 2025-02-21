@@ -9,7 +9,7 @@ from moving_obstacle import MovingObstacle
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("moving_obstacle")
+scenario = ScenarioGenerator("moving_obstacle_head_on")        # moving_obstacle_crossing, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
 waypoints, static_obstacles, moving_obstacles_data = scenario.get_scenario()
 
 moving_obstacles = [MovingObstacle(*data) for data in moving_obstacles_data]
@@ -40,5 +40,13 @@ def animate(i):
 
 # Simulation setup
 boat = BoatSimulator(waypoints, static_obstacles, moving_obstacles)
-ani = animation.FuncAnimation(render.fig, animate, frames=300, interval=50, blit=False)
+ani = animation.FuncAnimation(render.fig, animate, frames=300, interval=100, blit=False)
+
+# # Save the animation as a video,
+# video_path = "log/simulation_video.mp4"  # Change to .gif for GIF output
+# Writer = animation.FFMpegWriter(fps=20, metadata={'title': 'USV Simulation'}, bitrate=1800)
+# ani.save(video_path, writer=Writer)
+
+
 plt.show()
+

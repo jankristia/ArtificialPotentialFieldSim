@@ -4,7 +4,8 @@ class LidarSimulator:
     def __init__(self, static_obstacles, max_range=20, num_rays=128):
         self.max_range = max_range  # Max Lidar range (meters)
         self.num_rays = num_rays  # Number of rays (resolution)
-        self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan
+        self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan in ENU, 0° is East
+        # self.angles = np.linspace(np.pi, 0, num_rays)  # 180° scan in NED, 0° is North
         self.static_obstacles = static_obstacles
         self.obstacles = []
 
