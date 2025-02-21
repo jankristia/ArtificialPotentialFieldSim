@@ -248,7 +248,7 @@ class BoatSimulator:
             if avg_dist <= 10:
                 is_nearby_obstacle = True
                 break
-        if is_nearby_obstacle:
+        if is_nearby_obstacle and self.collision_scenario != "overtaking":
             self.base_thrust = 10
         else:
             self.base_thrust = 20
@@ -293,12 +293,12 @@ class BoatSimulator:
         # NB: Now it assumes to always know the state of the dynamic obstacles, even outside the vision range
 
         collision_risk_this_step = False
-        for obs in self.moving_obstacles:
+        if len(self.moving_obstacles) > 0:
+            obs = self.moving_obstacles[0]
             relative_position, relative_velocity = self.calculate_relative_pos_velocity(obs)
             tcpa, dcpa = self.calculate_tcpa_dcpa(relative_position, relative_velocity)
             if self.determine_collision_risk(tcpa, dcpa):
                 collision_risk_this_step = True
-                break
 
         # Update collision state counters
         if collision_risk_this_step:
@@ -329,25 +329,27 @@ class BoatSimulator:
             return (angle + np.pi) % (2 * np.pi) - np.pi
 
         scenarios = []
-        for obs in self.moving_obstacles:
-            relative_position, _ = self.calculate_relative_pos_velocity(obs)
-            bearing_to_obs = np.arctan2(relative_position[1], relative_position[0])
-            rel_bearing = normalize_angle(bearing_to_obs - self.state[2])
-            rel_bearing_deg = np.degrees(rel_bearing)
+        obs = self.moving_obstacles[0]
+        relative_position, _ = self.calculate_relative_pos_velocity(obs)
+        bearing_to_obs = np.arctan2(relative_position[1], relative_position[0])
+        rel_bearing = normalize_angle(bearing_to_obs - self.state[2])
+        rel_bearing_deg = np.degrees(rel_bearing)
 
-            if abs(rel_bearing_deg) < 20:
-                own_velocity = np.array([self.state[3], self.state[4]])
-                obs_velocity = np.array([obs.vx, obs.vy])
+        if abs(rel_bearing_deg) < 20:
+            own_velocity = np.array([self.state[3], self.state[4]])
+            obs_velocity = np.array([obs.vx, obs.vy])
 
-                R_full = Rzyx(0, 0, self.state[2])
-                R_2d = R_full[:2, :2]
-                own_velocity = R_2d @ own_velocity
-                if np.dot(own_velocity, obs_velocity) > 0:
-                    scenarios.append("overtaking")
-                else:
-                    scenarios.append("head-on")
+            R_full = Rzyx(0, 0, self.state[2])
+            R_2d = R_full[:2, :2]
+            own_velocity = R_2d @ own_velocity
+            if np.dot(own_velocity, obs_velocity) > 0:
+                scenarios.append("overtaking")
             else:
-                scenarios.append("crossing")
+                scenarios.append("head-on")
+        elif rel_bearing_deg < -20:
+            scenarios.append("crossing-right")
+        elif rel_bearing_deg > 20:
+            scenarios.append("crossing-left")
 
         if len(scenarios) == 1:
             return scenarios[0]
@@ -391,7 +393,24 @@ class BoatSimulator:
             
             Rb = 0
             if self.collision_scenario == "head-on":
-                # Add a bearing risk based on the relative bearing to the obstacle
+                diff_bearing = np.arctan2(np.sin(angle - obs_bearing), np.cos(angle - obs_bearing))
+                if diff_bearing > 0:
+                    Rb = 20
+                elif diff_bearing > -np.pi/6:
+                    Rb = 10
+            elif self.collision_scenario == "crossing-left":
+                diff_bearing = np.arctan2(np.sin(angle - obs_bearing), np.cos(angle - obs_bearing))
+                if diff_bearing < 0:
+                    Rb = 20
+                elif diff_bearing > np.pi/6:
+                    Rb = 10
+            elif self.collision_scenario == "crossing-right":
+                diff_bearing = np.arctan2(np.sin(angle - obs_bearing), np.cos(angle - obs_bearing))
+                if diff_bearing > 0:
+                    Rb = 20
+                elif diff_bearing > -np.pi/6:
+                    Rb = 10
+            elif self.collision_scenario == "overtaking":
                 diff_bearing = np.arctan2(np.sin(angle - obs_bearing), np.cos(angle - obs_bearing))
                 if diff_bearing > 0:
                     Rb = 20

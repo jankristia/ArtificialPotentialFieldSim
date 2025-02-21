@@ -9,7 +9,7 @@ from moving_obstacle import MovingObstacle
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("moving_obstacle_head_on")        # moving_obstacle_crossing, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
+scenario = ScenarioGenerator("moving_obstacle_overtaking")        # moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
 waypoints, static_obstacles, moving_obstacles_data = scenario.get_scenario()
 
 moving_obstacles = [MovingObstacle(*data) for data in moving_obstacles_data]
