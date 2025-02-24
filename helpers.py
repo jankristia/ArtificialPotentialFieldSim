@@ -39,3 +39,20 @@ def Rzyx(phi, theta, psi):
         np.hstack([spsi*cth, cpsi*cphi+sphi*sth*spsi, -cpsi*sphi+sth*spsi*cphi]),
         np.hstack([-sth, cth*sphi, cth*cphi])
     ])
+
+
+def calculate_relative_pos_velocity(vessel_state, obs):
+    """Calculate relative position and velocity of the obstacle"""
+    vessel_pos = np.array([vessel_state[0], vessel_state[1]])
+    vessel_vel = np.array([vessel_state[3], vessel_state[4]])
+    obs_pos = np.array([obs.x, obs.y])
+    obs_vel = np.array([obs.vx, obs.vy])
+
+    R_full = Rzyx(0, 0, vessel_state[2])
+    R_2d = R_full[:2, :2]
+    vessel_vel = R_2d @ vessel_vel
+
+    relative_position = obs_pos - vessel_pos
+    relative_velocity = obs_vel - vessel_vel
+
+    return relative_position, relative_velocity
