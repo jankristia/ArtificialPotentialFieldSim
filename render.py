@@ -28,14 +28,12 @@ class Render:
         self.trajectory_y = []
         self.obstacle_patches = []
         self.moving_obstacle_patches = []
-        self.collision_cones = []
 
         self.legend_handles = [
             plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='b', marker='o', markersize=8, lw=0, label="Boat"),
             plt.Line2D([0], [0], color='b', lw=2, label="Boat Heading"),
             plt.Line2D([0], [0], color='purple', lw=2, label="Detected Obstacles"),
-            plt.Line2D([0], [0], color='orange', lw=2, linestyle='', label="Collision Cone"),
         ]
 
         self.ax.legend(handles=self.legend_handles, loc='upper right')
@@ -91,17 +89,7 @@ class Render:
             self.ax.add_patch(circle)
             self.moving_obstacle_patches.append(circle)
         
-        for patch in self.collision_cones:
-            patch.remove()
-        self.collision_cones.clear()
-    
-        # Draw new predicted velocity obstacle zones
-        for obs_x, obs_y, obs_radius in boat.predicted_obstacle_positions:
-            collision_circle = plt.Circle((obs_x, obs_y), obs_radius, edgecolor='orange', fill=False, linestyle='--', linewidth=1.5)
-            self.ax.add_patch(collision_circle)
-            self.collision_cones.append(collision_circle)
-        
-        return self.boat_marker, self.trail, self.lidar_lines + self.heading_arrow
+        return self.boat_marker, self.trail, self.heading_arrow
     
     def prepare_plot_for_saving(self):
         """Prepare the plot for saving by removing force arrows and legend."""

@@ -2,10 +2,9 @@ import numpy as np
 
 class LidarSimulator:
     def __init__(self, static_obstacles, max_range=20, num_rays=128):
-        self.max_range = max_range  # Max Lidar range (meters)
-        self.num_rays = num_rays  # Number of rays (resolution)
-        self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)  # 180° scan in ENU, 0° is East
-        # self.angles = np.linspace(np.pi, 0, num_rays)  # 180° scan in NED, 0° is North
+        self.max_range = max_range
+        self.num_rays = num_rays
+        self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)
         self.static_obstacles = static_obstacles
         self.obstacles = []
 
@@ -18,15 +17,15 @@ class LidarSimulator:
         
         discriminant = b**2 - 4*a*c
         if discriminant < 0:
-            return None  # No intersection
+            return None
         
         t1 = (-b - np.sqrt(discriminant)) / (2*a)
         t2 = (-b + np.sqrt(discriminant)) / (2*a)
         
         if t1 > 0 and t1 < self.max_range:
-            return t1  # Entry point
+            return t1
         elif t2 > 0 and t2 < self.max_range:
-            return t2  # Exit point
+            return t2
         return None
     
     def sense_obstacles(self, boat_x, boat_y, boat_psi, moving_obstacles=[]):
@@ -60,7 +59,7 @@ class LidarSimulator:
         cluster = []
 
         for dist, angle in zip(lidar_readings, self.angles):
-            adjusted_angle = angle + boat_state[2]  # Convert to World frame
+            adjusted_angle = angle + boat_state[2]
 
             if dist >= self.max_range:
                 # End the current cluster if there is one
@@ -70,7 +69,7 @@ class LidarSimulator:
                     
                     start_angle = cluster[0][1]
                     end_angle = cluster[-1][1]
-                    obstacle_clusters.append((start_angle, end_angle, avg_dist))  #  can use avg_dist - self.safety_distance
+                    obstacle_clusters.append((start_angle, end_angle, avg_dist))
                     cluster = []  # Reset cluster
 
                 prev_dist = None  # Reset for new cluster
@@ -103,8 +102,8 @@ class LidarSimulator:
         """Merges obstacle clusters if the Euclidean distance between them is below a threshold."""
         
         merged_clusters = []
-        merge_distance_threshold = 4*radius  # Maximum allowed gap (meters) between clusters to merge
-        boat_width = 2*radius  # Boat width for dynamic safety margin
+        merge_distance_threshold = 4*radius
+        boat_width = 2*radius
         
         if not obstacle_clusters:
             return  []# No clusters detected
@@ -150,7 +149,7 @@ class LidarSimulator:
         current_cluster[1] += margin
         merged_clusters.append(tuple(current_cluster))
         
-        return merged_clusters  # Update with refined obstacles
+        return merged_clusters
 
 
 

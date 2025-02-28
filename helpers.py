@@ -1,17 +1,16 @@
 import numpy as np
 
-m = 20.0      # Mass of the boat (kg)
-Iz = 8.5     # Moment of inertia (kg.m^2)
-X_u_dot = -30  # Added mass in surge
-Y_v_dot = -25  # Added mass in sway
-N_r_dot = -5  # Added moment of inertia in yaw
-Xu = -40     # Linear damping in surge
-Yv = -65     # Linear damping in sway
-Nr = -30     # Linear damping in yaw
+m = 20.0
+Iz = 8.5
+X_u_dot = -30
+Y_v_dot = -25
+N_r_dot = -5
+Xu = -40
+Yv = -65
+Nr = -30
 Y_r = -0.15
 N_v = -0.12
 
-# Model matrices
 M = np.array([
     [m - X_u_dot, 0, 0],
     [0, m - Y_v_dot, 0],
@@ -40,6 +39,9 @@ def Rzyx(phi, theta, psi):
         np.hstack([-sth, cth*sphi, cth*cphi])
     ])
 
+def ssa(angle):
+    """Normalize an angle to the range [-π, π]"""
+    return (angle + np.pi) % (2 * np.pi) - np.pi
 
 def calculate_relative_pos_velocity(vessel_state, obs):
     """Calculate relative position and velocity of the obstacle"""
@@ -52,7 +54,7 @@ def calculate_relative_pos_velocity(vessel_state, obs):
     R_2d = R_full[:2, :2]
     vessel_vel = R_2d @ vessel_vel
 
-    relative_position = obs_pos - vessel_pos
-    relative_velocity = obs_vel - vessel_vel
+    relative_position =  obs_pos - vessel_pos
+    relative_velocity =  vessel_vel - obs_vel
 
     return relative_position, relative_velocity

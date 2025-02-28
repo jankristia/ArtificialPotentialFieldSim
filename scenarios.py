@@ -10,7 +10,7 @@ class ScenarioGenerator:
     
     def setup_scenario(self):
         if self.scenario_name == "moving_obstacle_head_on":
-            self.waypoints = np.array([[10, 10], [35, 35]])
+            self.waypoints = np.array([[10, 10], [50, 50]])
             self.static_obstacles = []
             self.moving_obstacles = [(30, 30, 1, -0.5, -0.5)]
         elif self.scenario_name == "moving_obstacle_crossing_right":
@@ -24,11 +24,15 @@ class ScenarioGenerator:
         elif self.scenario_name == "moving_obstacle_crossing_left_right_and_front":
             self.waypoints = np.array([[10, 10], [50, 50]])
             self.static_obstacles = []
-            self.moving_obstacles = [(5, 25, 1, 0.5, -0.5), (35, 5, 1, -0.5, 0.5), (30, 30, 1, -0.5, -0.5)]
+            self.moving_obstacles = [(5, 25, 1, 0.5, -0.5), (40, 5, 1, -0.5, 0.5), (30, 30, 1, -0.5, -0.5), (10, 15, 2, 0, 0),(16, 24, 2, 0, 0)] 
         elif self.scenario_name == "moving_obstacle_overtaking":
             self.waypoints = np.array([[10, 10], [50, 50]])
             self.static_obstacles = []
-            self.moving_obstacles = [(10, 10, 1, 0.15, 0.15)]
+            self.moving_obstacles = [(10, 10, 1, 0.5, 0.5)]
+        elif self.scenario_name == "moving_obstacle_overtaking_head_on_crossing":
+            self.waypoints = np.array([[10, 10], [50, 50]])
+            self.static_obstacles = []
+            self.moving_obstacles = [(10, 10, 1, 0.15, 0.15), (45, 45, 1, -0.5, -0.5), (40, 10, 1, -0.25, 0.65)]
         elif self.scenario_name == "two_moving_obstacles":
             self.waypoints = np.array([[10, 10], [50, 50]])
             self.static_obstacles = []
