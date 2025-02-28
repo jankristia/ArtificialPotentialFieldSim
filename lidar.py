@@ -1,11 +1,10 @@
 import numpy as np
 
 class LidarSimulator:
-    def __init__(self, static_obstacles, max_range=20, num_rays=128):
+    def __init__(self, max_range=20, num_rays=128):
         self.max_range = max_range
         self.num_rays = num_rays
         self.angles = np.linspace(-1/2*np.pi, 1/2*np.pi, num_rays)
-        self.static_obstacles = static_obstacles
         self.obstacles = []
 
     def ray_circle_intersection(self, ray_origin, ray_dir, circle_center, circle_radius):
@@ -28,13 +27,13 @@ class LidarSimulator:
             return t2
         return None
     
-    def sense_obstacles(self, boat_x, boat_y, boat_psi, moving_obstacles=[]):
+    def sense_obstacles(self, boat_x, boat_y, boat_psi, circular_obstacles=[]):
         """ Simulates LiDAR scan by checking exact intersection points with obstacles """
         distances = np.full(self.num_rays, float(self.max_range))  # Default: max range
         ray_origin = np.array([boat_x, boat_y])
 
 
-        self.obstacles = self.static_obstacles + [(obs.x, obs.y, obs.radius) for obs in moving_obstacles]
+        self.obstacles = [(obs.x, obs.y, obs.radius) for obs in circular_obstacles]
         
         for i, angle in enumerate(self.angles):
             ray_angle = angle + boat_psi
@@ -49,10 +48,10 @@ class LidarSimulator:
                     
         return distances
     
-    def cluster_lidar_data(self, boat_state, moving_obstacles):
+    def cluster_lidar_data(self, boat_state, circular_obstacles):
         """Clusters LiDAR data into detected obstacles, adding a safety margin to each obstacle."""
 
-        lidar_readings = self.sense_obstacles(boat_state[0], boat_state[1], boat_state[2], moving_obstacles)
+        lidar_readings = self.sense_obstacles(boat_state[0], boat_state[1], boat_state[2], circular_obstacles)
         obstacle_clusters = []
         prev_dist = None
         dist_diff_threshold = 1.0

@@ -1,12 +1,11 @@
 import numpy as np
 from lidar import LidarSimulator
-from cirular_obstacle import CircularObstacle
 from helpers import M, N, Rzyx
 from velocity_obstacles import tcpa_dcpa_vo_check
 
 
 class BoatSimulator:
-    def __init__(self, waypoints, obstacles, moving_obstacles):
+    def __init__(self, waypoints, circular_obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
         self.state = np.array([0.0, 0.0, 1/2*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         
@@ -37,12 +36,11 @@ class BoatSimulator:
 
         # LiDAR and obstacles
         self.safety_distance = 1.0
-        self.lidar = LidarSimulator(static_obstacles=obstacles)
+        self.lidar = LidarSimulator()
         self.collided = False
         self.reached_goal = False
         self.obstacle_clusters = []
-        self.static_obstacles = obstacles
-        self.moving_obstacles = moving_obstacles
+        self.circular_obstacles = circular_obstacles
 
         # Velocity Obstacles
         self.forbidden_headings = []
@@ -131,7 +129,7 @@ class BoatSimulator:
         - If heading is inside Velocity Obstacle
         """
 
-        self.obstacle_clusters = self.lidar.cluster_lidar_data(self.state, self.moving_obstacles)
+        self.obstacle_clusters = self.lidar.cluster_lidar_data(self.state, self.circular_obstacles)
         self.obstacle_clusters = self.lidar.cluster_objects(self.obstacle_clusters, self.radius)
         risk_list = []
         current_angle = self.state[2]
@@ -200,7 +198,7 @@ class BoatSimulator:
         absolute_velocity = np.sqrt(self.state[3]**2 + self.state[4]**2)
 
         psi_d = self.los_guidance()
-        self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.moving_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
+        self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
 
         psi_d = self.cri_obstacle_avoidance(psi_d)
 
@@ -212,5 +210,5 @@ class BoatSimulator:
         self.state[:3] += Rzyx(0, 0, self.state[2]) @ self.state[3:] * self.dt  # Update position using new velocity
 
         # Update moving obstacles
-        for obs in self.moving_obstacles:
+        for obs in self.circular_obstacles:
             obs.update_position(self.dt)

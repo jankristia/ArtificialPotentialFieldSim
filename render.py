@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class Render:
-    def __init__(self, waypoints, obstacles):
+    def __init__(self, waypoints):
         """Initialize the rendering environment."""
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
         self.ax.set_xlim(0, 60)
@@ -13,11 +13,6 @@ class Render:
         
         # Draw waypoints
         self.ax.plot(waypoints[:, 0], waypoints[:, 1], 'ro--', label="Waypoints")
-        
-        # Draw obstacles
-        for obs_x, obs_y, obs_r in obstacles:
-            circle = plt.Circle((obs_x, obs_y), obs_r, color='r', alpha=0.5)
-            self.ax.add_patch(circle)
         
         self.boat_marker = plt.Circle((0, 0), 1, color='b', alpha=0.5)
         self.ax.add_patch(self.boat_marker)
@@ -46,7 +41,7 @@ class Render:
         self.trail.set_data(self.trajectory_x, self.trajectory_y)
         
         # Update lidar visualization
-        distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2], boat.moving_obstacles)
+        distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2], boat.circular_obstacles)
         for j, (dist, line) in enumerate(zip(distances, boat.lidar.angles)):
             angle = boat.state[2] + line
             end_x = boat.state[0] + dist * np.cos(angle)
@@ -84,7 +79,7 @@ class Render:
 
         self.moving_obstacle_patches.clear()
 
-        for obs in boat.moving_obstacles:
+        for obs in boat.circular_obstacles:
             circle = plt.Circle((obs.x, obs.y), obs.radius, color='orange', alpha=0.5)
             self.ax.add_patch(circle)
             self.moving_obstacle_patches.append(circle)
