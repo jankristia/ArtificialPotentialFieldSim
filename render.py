@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.patches as patches
 
 class Render:
     def __init__(self, waypoints):
@@ -18,11 +19,14 @@ class Render:
         self.ax.add_patch(self.boat_marker)
         self.trail, = self.ax.plot([], [], 'b-', linewidth=1)
         self.lidar_lines = [self.ax.plot([], [], 'g-', alpha=0.3)[0] for _ in range(128)]    # Must be the same as num_rays in lidar.py
+        self.distance_profile_lines = [self.ax.plot([], [], 'g-', alpha=0.3)[0] for _ in range(180)] # Must be same as length of boat.candidate_headings 
         self.heading_arrow = [self.ax.arrow(0, 0, 0, 0, head_width=1, color='b')]
         self.trajectory_x = []
         self.trajectory_y = []
         self.obstacle_patches = []
         self.moving_obstacle_patches = []
+        self.rectangle_obstacles_patches = []
+        self.expanded_rectangle_obstacles_patches = []
 
         self.legend_handles = [
             plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
@@ -40,38 +44,45 @@ class Render:
         self.trajectory_y.append(boat.state[1])
         self.trail.set_data(self.trajectory_x, self.trajectory_y)
         
-        # Update lidar visualization
-        distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2], boat.circular_obstacles)
-        for j, (dist, line) in enumerate(zip(distances, boat.lidar.angles)):
-            angle = boat.state[2] + line
-            end_x = boat.state[0] + dist * np.cos(angle)
-            end_y = boat.state[1] + dist * np.sin(angle)
-            self.lidar_lines[j].set_data([boat.state[0], end_x], [boat.state[1], end_y])
+        # # Update lidar visualization
+        # distances = boat.lidar.sense_obstacles(boat.state[0], boat.state[1], boat.state[2], boat.circular_obstacles)
+        # for j, (dist, line) in enumerate(zip(distances, boat.lidar.angles)):
+        #     angle = boat.state[2] + line
+        #     end_x = boat.state[0] + dist * np.cos(angle)
+        #     end_y = boat.state[1] + dist * np.sin(angle)
+        #     self.lidar_lines[j].set_data([boat.state[0], end_x], [boat.state[1], end_y])
 
-            if 15 < dist <= 20:
-                self.lidar_lines[j].set_color('g')
-            elif 10 < dist <= 15:
-                self.lidar_lines[j].set_color('y')
-            elif 5 < dist <= 10:
-                self.lidar_lines[j].set_color('orange')
-            elif 0 <= dist <= 5:
-                self.lidar_lines[j].set_color('r')
+        #     if 15 < dist <= 20:
+        #         self.lidar_lines[j].set_color('g')
+        #     elif 10 < dist <= 15:
+        #         self.lidar_lines[j].set_color('y')
+        #     elif 5 < dist <= 10:
+        #         self.lidar_lines[j].set_color('orange')
+        #     elif 0 <= dist <= 5:
+        #         self.lidar_lines[j].set_color('r')
             
         # Update heading arrow
         self.heading_arrow[0].remove()
         self.heading_arrow[0] = self.ax.arrow(boat.state[0], boat.state[1], 2 * np.cos(boat.state[2]), 2 * np.sin(boat.state[2]))
 
-        # Update detected obstacle clusters
-        for patch in self.obstacle_patches:
-            patch.remove()
-        self.obstacle_patches.clear()
+        for j, (dist, line) in enumerate(zip(boat.distance_profile, boat.candidate_headings)):
+            angle = boat.state[2] + line
+            end_x = boat.state[0] + dist * np.cos(angle)
+            end_y = boat.state[1] + dist * np.sin(angle)
+            self.distance_profile_lines[j].set_data([boat.state[0], end_x], [boat.state[1], end_y])
+            self.distance_profile_lines[j].set_color('g')
 
-        for start_angle, end_angle, avg_dist in boat.obstacle_clusters:
-            arc_points = np.linspace(start_angle, end_angle, 10)
-            arc_x = boat.state[0] + avg_dist * np.cos(arc_points)
-            arc_y = boat.state[1] + avg_dist * np.sin(arc_points)
-            patch, = self.ax.plot(arc_x, arc_y, 'purple', linewidth=2)
-            self.obstacle_patches.append(patch)
+        # # Update detected obstacle clusters
+        # for patch in self.obstacle_patches:
+        #     patch.remove()
+        # self.obstacle_patches.clear()
+
+        # for start_angle, end_angle, avg_dist in boat.obstacle_clusters:
+        #     arc_points = np.linspace(start_angle, end_angle, 10)
+        #     arc_x = boat.state[0] + avg_dist * np.cos(arc_points)
+        #     arc_y = boat.state[1] + avg_dist * np.sin(arc_points)
+        #     patch, = self.ax.plot(arc_x, arc_y, 'purple', linewidth=2)
+        #     self.obstacle_patches.append(patch)
         
         # Update moving obstacles
         for patch in self.moving_obstacle_patches:
@@ -83,6 +94,25 @@ class Render:
             circle = plt.Circle((obs.x, obs.y), obs.radius, color='orange', alpha=0.5)
             self.ax.add_patch(circle)
             self.moving_obstacle_patches.append(circle)
+
+
+        for rect in self.rectangle_obstacles_patches:
+            rect.remove()
+        self.rectangle_obstacles_patches.clear()
+
+        for rect in boat.rectangle_obstacles:
+            polygon = patches.Polygon(rect, linewidth=2, edgecolor='red', facecolor='none')
+            self.ax.add_patch(polygon)
+            self.rectangle_obstacles_patches.append(polygon)
+
+        for rect in self.expanded_rectangle_obstacles_patches:
+            rect.remove()
+        self.expanded_rectangle_obstacles_patches.clear()
+
+        for rect in boat.expanded_retangles:
+            polygon = patches.Polygon(rect, linewidth=2, edgecolor='red', facecolor='none')
+            self.ax.add_patch(polygon)
+            self.expanded_rectangle_obstacles_patches.append(polygon)
         
         return self.boat_marker, self.trail, self.heading_arrow
     

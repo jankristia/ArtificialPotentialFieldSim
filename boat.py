@@ -2,6 +2,7 @@ import numpy as np
 from lidar import LidarSimulator
 from helpers import M, N, Rzyx
 from velocity_obstacles import tcpa_dcpa_vo_check
+from distance_to_object import get_distance_profile
 
 
 class BoatSimulator:
@@ -26,7 +27,7 @@ class BoatSimulator:
         self.prev_velocity_error = 0.0
         self.velocity_integral_error = 0.0
         self.integral_windup_limit = 50
-        self.base_surge_velocity = 2.0
+        self.base_surge_velocity = 1.0
         
         # Waypoints and navigation
         self.waypoints = waypoints
@@ -39,8 +40,12 @@ class BoatSimulator:
         self.lidar = LidarSimulator()
         self.collided = False
         self.reached_goal = False
-        self.obstacle_clusters = []
         self.circular_obstacles = circular_obstacles
+        self.rectangle_obstacles = []
+        self.expanded_retangles = []
+        self.distance_profile = []
+        self.candidate_headings = []
+
 
         # Velocity Obstacles
         self.forbidden_headings = []
@@ -78,17 +83,32 @@ class BoatSimulator:
             self.current_wp_index += 1
 
         return psi_d
+    
+    def wp_guidance(self):
+        """Compute desired heading using waypoint guidance"""
+        if self.current_wp_index >= len(self.waypoints):
+            return self.state[2]
+        
+        wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
+        
+        dx = wp_next[0] - self.state[0]
+        dy = wp_next[1] - self.state[1]
+        psi_d = np.arctan2(dy, dx)
+
+        if np.hypot(self.state[0]-wp_next[0], self.state[1]-wp_next[1]) < self.thresh_next_wp:
+            self.current_wp_index += 1
+        return psi_d
 
     def pd_heading_controller(self, psi_d):
         """PD Controller for yaw control (differential thrust)"""
         psi = self.state[2]
-        error = np.arctan2(np.sin(psi_d - psi), np.cos(psi_d - psi))
+        error = psi_d - psi
         d_error = (error - self.prev_heading_error) / self.dt
-        thrust_diff = self.kp_heading * error + self.kd_heading * d_error  # PD control output
+        thrust_diff = self.kp_heading * error + self.kd_heading * d_error
         self.prev_heading_error
         return thrust_diff
     
-    def pd_velocity_controller(self, surge_velocity_d):
+    def pid_velocity_controller(self, surge_velocity_d):
         """PD Controller for surge velocity control"""
         surge_velocity = self.state[3]
         error = surge_velocity_d - surge_velocity
@@ -98,13 +118,15 @@ class BoatSimulator:
         self.velocity_integral_error += error * self.dt
         self.velocity_integral_error = np.clip(self.velocity_integral_error, -self.integral_windup_limit, self.integral_windup_limit)
 
-        control_output = self.kp_velocity * error + self.kd_velocity * d_error + self.ki_velocity * self.velocity_integral_error
+        base_thrust = 30*self.base_surge_velocity
+
+        control_output = self.kp_velocity * error + self.kd_velocity * d_error + self.ki_velocity * self.velocity_integral_error + base_thrust
         return np.clip(control_output, self.min_thrust, self.max_thrust)
 
     def combined_controller(self, psi_d, surge_velocity_d):
         """Combined PD controller for heading and surge velocity"""
         thrust_diff = self.pd_heading_controller(psi_d)
-        surge_force = self.pd_velocity_controller(surge_velocity_d)
+        surge_force = self.pid_velocity_controller(surge_velocity_d)
     
         T_left = surge_force + thrust_diff/2
         T_right = surge_force - thrust_diff/2
@@ -129,12 +151,24 @@ class BoatSimulator:
         - If heading is inside Velocity Obstacle
         """
 
-        self.obstacle_clusters = self.lidar.cluster_lidar_data(self.state, self.circular_obstacles)
-        self.obstacle_clusters = self.lidar.cluster_objects(self.obstacle_clusters, self.radius)
+        distances = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2], self.circular_obstacles)
+        filtered_distances, filtered_angles = self.lidar.remove_noise_knn(distances, self.lidar.angles)
+        clusters_ = self.lidar.cluster_lidar_points(filtered_distances, filtered_angles)
+
+        if clusters_:
+            merged_clusters = self.lidar.merge_clusters(clusters_)
+            self.rectangle_obstacles = self.lidar.clusters_to_oriented_rectangles(self.state, merged_clusters)
+            self.expanded_retangles = self.lidar.expand_oriented_rectangles(self.rectangle_obstacles, self.radius)
+        else:
+            self.rectangle_obstacles = []
+            self.expanded_retangles = []
+        self.candidate_headings =  np.linspace(-1/2*np.pi, 1/2*np.pi, 180)  # self.lidar.angles
+        self.distance_profile = get_distance_profile(self.expanded_retangles, self.candidate_headings, self.state, max_distance=20.0)
+
         risk_list = []
         current_angle = self.state[2]
 
-        for dist, angle in zip(self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2]), self.lidar.angles):
+        for dist, angle in zip(self.distance_profile, self.candidate_headings):
             angle = angle + current_angle
             angle_diff = np.abs(np.arctan2(np.sin(psi_d - angle), np.cos(psi_d - angle)))
             if angle_diff < np.pi/6:  # Reduce threshold for more responsive avoidance
@@ -143,11 +177,7 @@ class BoatSimulator:
                 Ra = np.abs(angle_diff - np.pi/6) * 0.04 * 180 / np.pi  # Adjust weight dynamically
 
             # Add distance risk
-            Rd = 0
-            for start_angle, end_angle, avg_dist in self.obstacle_clusters:
-                if start_angle <= angle <= end_angle:
-                    Rd = max(0, 20 - avg_dist - self.radius)*3  # Prevent negative risk values
-                    break
+            Rd = max(0, 20 - dist)*3  # Prevent negative risk values
 
             # Velocity obstacle risk
             Rvo = 0
@@ -155,9 +185,8 @@ class BoatSimulator:
                 if right_forbidden_heading <= angle <= left_forbidden_heading:
                     Rvo = 40
                     break
-
-
-            Rt =  Rvo + Ra + Rd # + Rb  
+            
+            Rt =  Rvo + Ra + Rd
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]
@@ -197,7 +226,9 @@ class BoatSimulator:
         # Find magnitude of vessels velocity
         absolute_velocity = np.sqrt(self.state[3]**2 + self.state[4]**2)
 
-        psi_d = self.los_guidance()
+        # psi_d = self.los_guidance()
+        psi_d = self.wp_guidance()
+
         self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
 
         psi_d = self.cri_obstacle_avoidance(psi_d)

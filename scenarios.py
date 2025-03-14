@@ -32,7 +32,7 @@ class ScenarioGenerator:
             self.circular_obstacles = [CircularObstacle(5, 25, 1, 0.5, -0.5), CircularObstacle(45, 45, 1, -0.5, -0.5), CircularObstacle(45, 10, 1, -0.5, 0.5)]
         elif self.scenario_name == "one_small_obstacle":
             self.waypoints = np.array([[10, 10], [50, 50]])
-            self.circular_obstacles = [CircularObstacle(30, 30, 2, 0, 0)]
+            self.circular_obstacles = [CircularObstacle(23, 23, 2, 0, 0)]
         elif self.scenario_name == "complex_obstacles":
             self.waypoints = np.array([[5, 5], [30, 15], [40, 40], [10,50]])
             self.circular_obstacles = [CircularObstacle(20, 20, 3, 0, 0), CircularObstacle(35, 30, 4, 0, 0), CircularObstacle(45, 25, 2, 0, 0)]

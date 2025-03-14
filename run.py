@@ -8,7 +8,7 @@ from render import Render
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("moving_obstacle_crossing_left_right_and_front")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
+scenario = ScenarioGenerator("complex_obstacles")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
 waypoints, circular_obstacles = scenario.get_scenario()
 
 render = Render(waypoints)
@@ -38,10 +38,10 @@ def animate(i):
 boat = BoatSimulator(waypoints, circular_obstacles)
 ani = animation.FuncAnimation(render.fig, animate, frames=600, interval=100, blit=False)
 
-# # Save the animation as a video,
-# video_path = "log/simulation_video.mp4"  # Change to .gif for GIF output
-# Writer = animation.FFMpegWriter(fps=20, metadata={'title': 'USV Simulation'}, bitrate=1800)
-# ani.save(video_path, writer=Writer)
+# Save the animation as a video,
+video_path = "log/simulation_video.mp4"  # Change to .gif for GIF output
+Writer = animation.FFMpegWriter(fps=20, metadata={'title': 'USV Simulation'}, bitrate=1800)
+ani.save(video_path, writer=Writer)
 
 
 plt.show()
