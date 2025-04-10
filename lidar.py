@@ -77,25 +77,37 @@ class LidarSimulator:
         filtered_angles = np.delete(angles, to_remove).tolist()
             
         return filtered_distances, filtered_angles
-    
-    def cluster_lidar_points(self, distances, angles, dist_max=20, threshold=1):
-        """Clusters LiDAR points and stores all measurements within each cluster."""
+
+    def cluster_lidar_points(self, distances, angles, dist_max=20, threshold=2.0):
+        """Clusters LiDAR points based on spatial proximity using Euclidean distance."""
         clusters = []
         current_cluster = []
 
         for i in range(len(angles)):
             distance = distances[i]
-            angle = angles[i]  
+            angle = angles[i]
 
-            if distance >= dist_max:
+            if distance >= dist_max or distance == 0:
+                # Point is too far or invalid
                 if current_cluster:
                     clusters.append(current_cluster)
                     current_cluster = []
                 continue
 
-            if current_cluster and abs(distance - current_cluster[-1][0]) > threshold:
-                clusters.append(current_cluster)
-                current_cluster = []
+            # Convert polar to Cartesian
+            x = distance * np.cos(angle)
+            y = distance * np.sin(angle)
+
+            if current_cluster:
+                last_distance, last_angle = current_cluster[-1]
+                last_x = last_distance * np.cos(last_angle)
+                last_y = last_distance * np.sin(last_angle)
+
+                euclidean_dist = np.hypot(x - last_x, y - last_y)
+
+                if euclidean_dist > threshold:
+                    clusters.append(current_cluster)
+                    current_cluster = []
 
             current_cluster.append((distance, angle))
 
@@ -119,6 +131,7 @@ class LidarSimulator:
                 merged_clusters[-1].extend(clusters[i])
             else:
                 merged_clusters.append(clusters[i])
+        
 
         return merged_clusters
     

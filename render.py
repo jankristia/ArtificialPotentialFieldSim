@@ -1,14 +1,16 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.patches as patches
+import os
+
 
 class Render:
-    def __init__(self, waypoints):
+    def __init__(self, waypoints, circular_obstacles):
         """Initialize the rendering environment."""
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
         self.ax.set_xlim(0, 60)
         self.ax.set_ylim(0, 60)
-        self.ax.set_title("Boat with Obstacles")
+        self.ax.set_title("Simulation Environment")
         self.ax.set_xlabel("X Position")
         self.ax.set_ylabel("Y Position")
         
@@ -27,12 +29,18 @@ class Render:
         self.moving_obstacle_patches = []
         self.rectangle_obstacles_patches = []
         self.expanded_rectangle_obstacles_patches = []
+        self.obstacle_trajectories = [[] for _ in range(len(circular_obstacles))]
+        self.obstacle_trail_lines = [self.ax.plot([], [], 'orange', linewidth=1)[0] for _ in range(len(circular_obstacles))]
+
 
         self.legend_handles = [
-            plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='b', marker='o', markersize=8, lw=0, label="Boat"),
-            plt.Line2D([0], [0], color='b', lw=2, label="Boat Heading"),
+            plt.Line2D([0], [0], color='b', lw=2, label="Boat Path"),
+            plt.Line2D([0], [0], color='orange', marker='o', markersize=8, lw=0, label="Obstacle"),
+            plt.Line2D([0], [0], color='orange', lw=2, label="Obstacle Path"),
+            plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='purple', lw=2, label="Detected Obstacles"),
+            plt.Line2D([0], [0], color='g', lw=2, label="Safe travel distance")
         ]
 
         self.ax.legend(handles=self.legend_handles, loc='upper right')
@@ -90,27 +98,33 @@ class Render:
 
         self.moving_obstacle_patches.clear()
 
-        for obs in boat.circular_obstacles:
+        for i, obs in enumerate(boat.circular_obstacles):
+            # Draw obstacle trajectory
+            self.obstacle_trajectories[i].append((obs.x, obs.y))
+            xs, ys = zip(*self.obstacle_trajectories[i])
+            self.obstacle_trail_lines[i].set_data(xs, ys)
+            # Draw obstacle
             circle = plt.Circle((obs.x, obs.y), obs.radius, color='orange', alpha=0.5)
             self.ax.add_patch(circle)
             self.moving_obstacle_patches.append(circle)
+            self
 
 
-        for rect in self.rectangle_obstacles_patches:
-            rect.remove()
-        self.rectangle_obstacles_patches.clear()
+        # for rect in self.rectangle_obstacles_patches:
+        #     rect.remove()
+        # self.rectangle_obstacles_patches.clear()
 
-        for rect in boat.rectangle_obstacles:
-            polygon = patches.Polygon(rect, linewidth=2, edgecolor='red', facecolor='none')
-            self.ax.add_patch(polygon)
-            self.rectangle_obstacles_patches.append(polygon)
+        # for rect in boat.rectangle_obstacles:
+        #     polygon = patches.Polygon(rect, linewidth=2, edgecolor='purple', facecolor='none')
+        #     self.ax.add_patch(polygon)
+        #     self.rectangle_obstacles_patches.append(polygon)
 
         for rect in self.expanded_rectangle_obstacles_patches:
             rect.remove()
         self.expanded_rectangle_obstacles_patches.clear()
 
         for rect in boat.expanded_retangles:
-            polygon = patches.Polygon(rect, linewidth=2, edgecolor='red', facecolor='none')
+            polygon = patches.Polygon(rect, linewidth=2, edgecolor='purple', facecolor='none')
             self.ax.add_patch(polygon)
             self.expanded_rectangle_obstacles_patches.append(polygon)
         
@@ -118,12 +132,33 @@ class Render:
     
     def prepare_plot_for_saving(self):
         """Prepare the plot for saving by removing force arrows and legend."""
-        for line in self.lidar_lines:
+        # for line in self.lidar_lines:
+        #     line.set_data([], [])
+
+        for rect in self.expanded_rectangle_obstacles_patches:
+            rect.remove()
+        self.expanded_rectangle_obstacles_patches.clear()
+
+        for line in self.distance_profile_lines:
             line.set_data([], [])
+            
 
         self.legend_handles = [
-            plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
             plt.Line2D([0], [0], color='b', marker='o', markersize=8, lw=0, label="Boat"),
+            plt.Line2D([0], [0], color='b', lw=2, label="Boat Path"),
+            plt.Line2D([0], [0], color='orange', marker='o', markersize=8, lw=0, label="Obstacle"),
+            plt.Line2D([0], [0], color='orange', lw=2, label="Obstacle Path"),
+            plt.Line2D([0], [0], color='r', marker='o', markersize=8, lw=2, label="Waypoints"),
         ]
 
         self.ax.legend(handles=self.legend_handles, loc='upper right')
+
+    def save_plot_in_video(self, folder, filename, frame_number=None):
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+        file_path = os.path.join(folder, filename)
+        self.fig.savefig(file_path, dpi=300, bbox_inches='tight')
+
+        if frame_number is not None:
+            print(f"Saved frame {frame_number} to {file_path}")

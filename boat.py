@@ -8,32 +8,38 @@ from distance_to_object import get_distance_profile
 class BoatSimulator:
     def __init__(self, waypoints, circular_obstacles):
         # State: [x, y, psi, u, v, r] (Position & velocity)
-        self.state = np.array([0.0, 0.0, 1/2*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
+        self.state = np.array([0.0, 0.0, 1/4*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
         
         # Boat parameters
-        self.max_thrust = 100
-        self.min_thrust = -60
+        self.max_thrust = 80
+        self.min_thrust = -50
         self.thruster_arm = 0.3
         self.radius = 1.0  # Radius of the boat (m)
+        self.neutral_pwm = 1500
+        self.min_pwm = 1100
+        self.max_pwm = 1900
         
         # Control parameters
-        self.dt = 0.1
-        self.kp_heading = 35 
-        self.kd_heading = 3
+        self.dt = 0.1       # Time step (s)
+        self.T = 0.3        # Time constant for refrence heading model
+        self.kp_heading = 700
+        self.kd_heading = 50
         self.prev_heading_error = 0.0
         self.kp_velocity = 150
         self.kd_velocity = 10
         self.ki_velocity = 5
         self.prev_velocity_error = 0.0
         self.velocity_integral_error = 0.0
-        self.integral_windup_limit = 50
+        self.integral_windup_limit = 100
         self.base_surge_velocity = 1.0
+        self.base_pwm = 0
+        self.prev_desired_heading = self.state[2]
         
         # Waypoints and navigation
         self.waypoints = waypoints
         self.current_wp_index = 0
         self.thresh_next_wp = 10.0
-        self.los_lookahead = 25
+        self.los_lookahead = 15
 
         # LiDAR and obstacles
         self.safety_distance = 1.0
@@ -51,11 +57,13 @@ class BoatSimulator:
         self.forbidden_headings = []
 
         # Variables for plotting
-        self.thrust_diff = 0.0
-        self.thrust_left = 0.0
-        self.thrust_right = 0.0
+        self.pwm_diff = 0
+        self.pwm_right = 0.0
+        self.pwm_right = 0.0
         self.cross_track_error = 0.0
-        self.desired_heading = 0.0
+        self.ColAv_desired_heading = 0.0
+        self.LOS_desired_heading = 0.0
+        self.shortest_object_dist = 0.0
 
 
 
@@ -118,30 +126,60 @@ class BoatSimulator:
         self.velocity_integral_error += error * self.dt
         self.velocity_integral_error = np.clip(self.velocity_integral_error, -self.integral_windup_limit, self.integral_windup_limit)
 
-        base_thrust = 30*self.base_surge_velocity
+        base_pwm = 1500 + 400/3*surge_velocity_d
 
-        control_output = self.kp_velocity * error + self.kd_velocity * d_error + self.ki_velocity * self.velocity_integral_error + base_thrust
-        return np.clip(control_output, self.min_thrust, self.max_thrust)
+        control_output = self.kp_velocity * error + self.kd_velocity * d_error + self.ki_velocity * self.velocity_integral_error + base_pwm
+        return np.clip(control_output, self.min_pwm, self.max_pwm)
 
     def combined_controller(self, psi_d, surge_velocity_d):
         """Combined PD controller for heading and surge velocity"""
-        thrust_diff = self.pd_heading_controller(psi_d)
-        surge_force = self.pid_velocity_controller(surge_velocity_d)
-    
-        T_left = surge_force + thrust_diff/2
-        T_right = surge_force - thrust_diff/2
+        pwm_diff_desired = self.pd_heading_controller(psi_d)
+        base_pwm_desired = self.pid_velocity_controller(surge_velocity_d)
+
+
+        # Apply low-pass filter to thrust pwm
+        self.pwm_diff = self.pwm_diff + self.dt / self.T * (pwm_diff_desired - self.pwm_diff)
+        self.base_pwm = self.base_pwm + self.dt / self.T * (base_pwm_desired - self.base_pwm)
+
+        # self.pwm_diff = pwm_diff_desired
+        # self.base_pwm = base_pwm_desired
+
+        pwm_left = self.base_pwm + self.pwm_diff / 2
+        pwm_right = self.base_pwm - self.pwm_diff / 2
         
-        T_left = np.clip(T_left, self.min_thrust, self.max_thrust)
-        T_right = np.clip(T_right, self.min_thrust, self.max_thrust)
+        pwm_left = np.clip(pwm_left, self.min_pwm, self.max_pwm)
+        pwm_right = np.clip(pwm_right, self.min_pwm, self.max_pwm)
 
-        self.thrust_diff = thrust_diff
-        self.thrust_left = T_left
-        self.thrust_right = T_right
+        self.pwm_left = pwm_left
+        self.pwm_right = pwm_right
 
-        # surge_force = (T_left + T_right)
-        yaw_moment = - self.thruster_arm * (T_right - T_left)  # Moment due to thrust difference
+        pwm_out = np.array([pwm_left, pwm_right])
+        return pwm_out
+    
+    def thrust_model(self, pwm_out):
+        """Convert PWM to thrust using a simple linear model"""
+        pwm_left, pwm_right = pwm_out
+
+        def pwm_to_thrust(pwm):
+            if pwm >= self.neutral_pwm:
+                return (pwm - self.neutral_pwm) / (self.max_pwm - self.neutral_pwm) * 100  # scale to [0, 100]
+            else:
+                return (pwm - self.neutral_pwm) / (self.min_pwm - self.neutral_pwm) * (-60)   # scale to [0, -60]
+
+        # Convert to thrust forces
+        thrust_left = pwm_to_thrust(pwm_left)
+        thrust_right = pwm_to_thrust(pwm_right)
+
+        # Surge force = sum of the two thrusters
+        surge_force = thrust_left + thrust_right
+
+        # Yaw moment = differential thrust * arm length (assume symmetric layout)
+        yaw_moment = (thrust_left - thrust_right) * self.thruster_arm
+
+        # No sway force in underactuated system
         tau = np.array([surge_force, 0, yaw_moment])  # [Fx, Fy, Mz]
-        return tau    
+        return tau
+
 
     def cri_obstacle_avoidance(self, psi_d):
         """Avoid obstacles using Collision Risk Index (CRI) and Velocity Obstacle (VO) method.
@@ -152,8 +190,8 @@ class BoatSimulator:
         """
 
         distances = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2], self.circular_obstacles)
-        filtered_distances, filtered_angles = self.lidar.remove_noise_knn(distances, self.lidar.angles)
-        clusters_ = self.lidar.cluster_lidar_points(filtered_distances, filtered_angles)
+        # filtered_distances, filtered_angles = self.lidar.remove_noise_knn(distances, self.lidar.angles)
+        clusters_ = self.lidar.cluster_lidar_points(distances, self.lidar.angles)
 
         if clusters_:
             merged_clusters = self.lidar.merge_clusters(clusters_)
@@ -167,6 +205,7 @@ class BoatSimulator:
 
         risk_list = []
         current_angle = self.state[2]
+        self.shortest_object_dist = np.min(distances)
 
         for dist, angle in zip(self.distance_profile, self.candidate_headings):
             angle = angle + current_angle
@@ -179,6 +218,13 @@ class BoatSimulator:
             # Add distance risk
             Rd = max(0, 20 - dist)*3  # Prevent negative risk values
 
+            # Prevent large changes in psi_d
+            heading_change = np.abs(angle - self.prev_desired_heading)
+            if heading_change  < np.pi/12:
+                R_delta_psi = 0
+            else:    
+                R_delta_psi = np.abs(heading_change - np.pi/12) * 0.001 * 180 / np.pi
+
             # Velocity obstacle risk
             Rvo = 0
             for right_forbidden_heading, left_forbidden_heading in self.forbidden_headings:
@@ -186,7 +232,7 @@ class BoatSimulator:
                     Rvo = 40
                     break
             
-            Rt =  Rvo + Ra + Rd
+            Rt =  Ra + Rd + R_delta_psi  + Rvo
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]
@@ -226,15 +272,22 @@ class BoatSimulator:
         # Find magnitude of vessels velocity
         absolute_velocity = np.sqrt(self.state[3]**2 + self.state[4]**2)
 
-        # psi_d = self.los_guidance()
-        psi_d = self.wp_guidance()
+        psi_d = self.los_guidance()
+        # psi_d = self.wp_guidance()
+        self.LOS_desired_heading = psi_d
 
         self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
 
         psi_d = self.cri_obstacle_avoidance(psi_d)
+        self.prev_desired_heading = psi_d
 
-        tau = self.combined_controller(psi_d, self.base_surge_velocity)  # Compute input forces and moments
+        self.ColAv_desired_heading = psi_d
+
+        pwm_out = self.combined_controller(psi_d, self.base_surge_velocity)  # Compute input forces and moments
         
+        tau = self.thrust_model(pwm_out)
+
+
         state_dot = self.state_dot(tau)
         
         self.state[3:] += state_dot[3:] * self.dt  # Update velocity state first
