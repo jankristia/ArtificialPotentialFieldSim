@@ -2,12 +2,14 @@ import numpy as np
 from helpers import calculate_relative_pos_velocity, ssa
     
 
-def tcpa_dcpa_vo_check(vessel_state, moving_objects, velocity_magnitude, lidar_angles, safety_radius, sensor_range):
+def tcpa_dcpa_vo_check(vessel_state, moving_objects, velocity_magnitude, lidar_angles, safety_radius, sensor_range, obstacle_vel_noise):
     """Check if the current heading is dangerous using TCPA, DCPA, and VO."""
     forbidden_headings = []
 
-    for obs in moving_objects:
+    for obs in moving_objects:      
         relative_position, relative_velocity = calculate_relative_pos_velocity(vessel_state, obs)
+        relative_velocity[0] += obstacle_vel_noise[0]
+        relative_velocity[1] += obstacle_vel_noise[1]
         distance = np.linalg.norm(relative_position)
         relative_heading = np.arctan2(relative_position[1], relative_position[0])
         heading_diff = ssa(relative_heading - vessel_state[2])

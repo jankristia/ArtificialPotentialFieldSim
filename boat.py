@@ -67,15 +67,28 @@ class BoatSimulator:
 
         # Noise and disturbances
         if isNoise:
+            # Velocity of water current
             self.vcx = -0.1
             self.vcy = 0.1
-            self.noise_std_dev = 0.3  # Standard deviation in meters
-            self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)
+            # GPS noise
+            self.gps_noise_std_dev = 0.3
+            self.gps_noise = np.random.normal(0, self.gps_noise_std_dev, size=2)
+            # Object tracking noise
+            self.object_velocity_noise_std_dev = 0.3
+            self.object_velocity_noise = np.random.normal(0, self.object_velocity_noise_std_dev, size=2)
+            # Heading noise
+            self.heading_noise_std_dev = np.deg2rad(0.5)
+            self.heading_noise = np.random.normal(0, self.heading_noise_std_dev)
         else:
+            # Velocity of water current
             self.vcx = 0
             self.vcy = 0
-            self.noise_std_dev = 0  # Standard deviation in meters
-            self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)
+            # GPS noise
+            self.gps_noise_std_dev = 0
+            self.gps_noise = np.random.normal(0, self.gps_noise_std_dev, size=2)
+            # Object tracking noise
+            self.object_velocity_noise_std_dev = 0
+            self.object_velocity_noise = np.random.normal(0, self.object_velocity_noise_std_dev, size=2)
 
 
 
@@ -121,7 +134,7 @@ class BoatSimulator:
 
     def pd_heading_controller(self, psi_d):
         """PD Controller for yaw control (differential thrust)"""
-        psi = self.state[2]
+        psi = self.state[2] + self.heading_noise
         error = psi_d - psi
         d_error = (error - self.prev_heading_error) / self.dt
         thrust_diff = self.kp_heading * error + self.kd_heading * d_error
@@ -201,7 +214,7 @@ class BoatSimulator:
         - If heading is inside Velocity Obstacle
         """
 
-        distances = self.lidar.sense_obstacles((self.state[0] + self.gps_noise[0]), (self.state[1] + self.gps_noise[1]), self.state[2], self.circular_obstacles)
+        distances = self.lidar.sense_obstacles((self.state[0] + self.gps_noise[0]), (self.state[1] + self.gps_noise[1]), self.state[2] + self.heading_noise, self.circular_obstacles)
         # filtered_distances, filtered_angles = self.lidar.remove_noise_knn(distances, self.lidar.angles)
         clusters_ = self.lidar.cluster_lidar_points(distances, self.lidar.angles)
 
@@ -216,7 +229,7 @@ class BoatSimulator:
         self.distance_profile = get_distance_profile(self.expanded_retangles, self.candidate_headings, self.state, max_distance=20.0)
 
         risk_list = []
-        current_angle = self.state[2]
+        current_angle = self.state[2] + self.heading_noise
         self.shortest_object_dist = np.min(distances)
 
         for dist, angle in zip(self.distance_profile, self.candidate_headings):
@@ -249,7 +262,7 @@ class BoatSimulator:
                     Rvo = 80
                     break
 
-            Rt =  Ra + Rd + R_delta_psi # + Rvo
+            Rt =  Ra + Rd + R_delta_psi + Rvo
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]
@@ -306,7 +319,7 @@ class BoatSimulator:
         # psi_d = self.wp_guidance()
         self.LOS_desired_heading = psi_d
 
-        self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
+        self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range, self.object_velocity_noise)
 
         psi_d = self.cri_obstacle_avoidance(psi_d)
         psi_d = 0.3 * psi_d + 0.7 * self.prev_desired_heading
@@ -328,5 +341,7 @@ class BoatSimulator:
         for obs in self.circular_obstacles:
             obs.update_position(self.dt)
 
-        # Update GPS noise
-        self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)
+        # Update sensor noise
+        self.gps_noise = np.random.normal(0, self.gps_noise_std_dev, size=2)
+        self.object_velocity_noise = np.random.normal(0, self.object_velocity_noise_std_dev, size=2)
+        self.heading_noise = np.random.normal(0, self.heading_noise_std_dev)
