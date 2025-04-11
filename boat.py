@@ -6,10 +6,10 @@ from distance_to_object import get_distance_profile
 
 
 class BoatSimulator:
-    def __init__(self, waypoints, circular_obstacles):
+    def __init__(self, waypoints, circular_obstacles, isNoise=False):
         # State: [x, y, psi, u, v, r] (Position & velocity)
-        self.state = np.array([0.0, 0.0, 1/4*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
-        
+        self.state = np.array([0.0, 0.0, 2/6*np.pi, 0.0, 0.0, 0.0])  # [x, y, heading, surge vel, sway vel, yaw rate]
+
         # Boat parameters
         self.max_thrust = 80
         self.min_thrust = -50
@@ -18,12 +18,12 @@ class BoatSimulator:
         self.neutral_pwm = 1500
         self.min_pwm = 1100
         self.max_pwm = 1900
-        
+
         # Control parameters
         self.dt = 0.1       # Time step (s)
         self.T = 0.3        # Time constant for refrence heading model
-        self.kp_heading = 700
-        self.kd_heading = 50
+        self.kp_heading = 200
+        self.kd_heading = 20
         self.prev_heading_error = 0.0
         self.kp_velocity = 150
         self.kd_velocity = 10
@@ -34,7 +34,7 @@ class BoatSimulator:
         self.base_surge_velocity = 1.0
         self.base_pwm = 0
         self.prev_desired_heading = self.state[2]
-        
+
         # Waypoints and navigation
         self.waypoints = waypoints
         self.current_wp_index = 0
@@ -65,18 +65,30 @@ class BoatSimulator:
         self.LOS_desired_heading = 0.0
         self.shortest_object_dist = 0.0
 
+        # Noise and disturbances
+        if isNoise:
+            self.vcx = -0.1
+            self.vcy = 0.1
+            self.noise_std_dev = 0.3  # Standard deviation in meters
+            self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)
+        else:
+            self.vcx = 0
+            self.vcy = 0
+            self.noise_std_dev = 0  # Standard deviation in meters
+            self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)
+
 
 
     def los_guidance(self):
         """Compute desired heading using Line of Sight (LOS)"""
         if self.current_wp_index >= len(self.waypoints):
             return self.state[2]
-        
-        x, y = self.state[0], self.state[1]
+
+        x, y = self.state[0] + self.gps_noise[0], self.state[1] + self.gps_noise[1]
 
         wp_curr = self.waypoints[self.current_wp_index]
         wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
-        
+
         dx = wp_next[0] - wp_curr[0]
         dy = wp_next[1] - wp_curr[1]
 
@@ -91,19 +103,19 @@ class BoatSimulator:
             self.current_wp_index += 1
 
         return psi_d
-    
+
     def wp_guidance(self):
         """Compute desired heading using waypoint guidance"""
         if self.current_wp_index >= len(self.waypoints):
             return self.state[2]
-        
+
         wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
-        
-        dx = wp_next[0] - self.state[0]
-        dy = wp_next[1] - self.state[1]
+
+        dx = wp_next[0] - (self.state[0] + self.gps_noise[0])
+        dy = wp_next[1] - (self.state[1] + self.gps_noise[1])
         psi_d = np.arctan2(dy, dx)
 
-        if np.hypot(self.state[0]-wp_next[0], self.state[1]-wp_next[1]) < self.thresh_next_wp:
+        if np.hypot((self.state[0] + self.gps_noise[0])-wp_next[0], (self.state[1] + self.gps_noise[1])-wp_next[1]) < self.thresh_next_wp:
             self.current_wp_index += 1
         return psi_d
 
@@ -115,7 +127,7 @@ class BoatSimulator:
         thrust_diff = self.kp_heading * error + self.kd_heading * d_error
         self.prev_heading_error
         return thrust_diff
-    
+
     def pid_velocity_controller(self, surge_velocity_d):
         """PD Controller for surge velocity control"""
         surge_velocity = self.state[3]
@@ -146,7 +158,7 @@ class BoatSimulator:
 
         pwm_left = self.base_pwm + self.pwm_diff / 2
         pwm_right = self.base_pwm - self.pwm_diff / 2
-        
+
         pwm_left = np.clip(pwm_left, self.min_pwm, self.max_pwm)
         pwm_right = np.clip(pwm_right, self.min_pwm, self.max_pwm)
 
@@ -155,7 +167,7 @@ class BoatSimulator:
 
         pwm_out = np.array([pwm_left, pwm_right])
         return pwm_out
-    
+
     def thrust_model(self, pwm_out):
         """Convert PWM to thrust using a simple linear model"""
         pwm_left, pwm_right = pwm_out
@@ -189,7 +201,7 @@ class BoatSimulator:
         - If heading is inside Velocity Obstacle
         """
 
-        distances = self.lidar.sense_obstacles(self.state[0], self.state[1], self.state[2], self.circular_obstacles)
+        distances = self.lidar.sense_obstacles((self.state[0] + self.gps_noise[0]), (self.state[1] + self.gps_noise[1]), self.state[2], self.circular_obstacles)
         # filtered_distances, filtered_angles = self.lidar.remove_noise_knn(distances, self.lidar.angles)
         clusters_ = self.lidar.cluster_lidar_points(distances, self.lidar.angles)
 
@@ -210,29 +222,34 @@ class BoatSimulator:
         for dist, angle in zip(self.distance_profile, self.candidate_headings):
             angle = angle + current_angle
             angle_diff = np.abs(np.arctan2(np.sin(psi_d - angle), np.cos(psi_d - angle)))
-            if angle_diff < np.pi/6:  # Reduce threshold for more responsive avoidance
-                Ra = 0
-            else:
-                Ra = np.abs(angle_diff - np.pi/6) * 0.04 * 180 / np.pi  # Adjust weight dynamically
+            # if angle_diff < np.pi/6:  # Reduce threshold for more responsive avoidance
+            #     Ra = 0
+            # else:
+            #     Ra = np.abs(angle_diff - np.pi/6) * 0.04 * 180 / np.pi  # Adjust weight dynamically
+            Ra =  0.04 * 180 / np.pi * (angle_diff) **2  # Adjust weight dynamically
+
 
             # Add distance risk
-            Rd = max(0, 20 - dist)*3  # Prevent negative risk values
+            Rd = max(0, 20 - dist)*6  # Prevent negative risk values
 
             # Prevent large changes in psi_d
-            heading_change = np.abs(angle - self.prev_desired_heading)
-            if heading_change  < np.pi/12:
+            heading_change = angle - self.prev_desired_heading
+            heading_change = np.arctan2(np.sin(heading_change), np.cos(heading_change))  # Wrap to [-pi, pi]
+
+            # Penalty grows if we try to reverse heading by more than 20 degrees
+            if np.abs(heading_change) > np.deg2rad(10):
+                R_delta_psi = 180 / np.pi * 0.1 * (np.abs(heading_change)) ** 2  # stronger but only when needed
+            else:
                 R_delta_psi = 0
-            else:    
-                R_delta_psi = np.abs(heading_change - np.pi/12) * 0.001 * 180 / np.pi
 
             # Velocity obstacle risk
             Rvo = 0
             for right_forbidden_heading, left_forbidden_heading in self.forbidden_headings:
                 if right_forbidden_heading <= angle <= left_forbidden_heading:
-                    Rvo = 40
+                    Rvo = 80
                     break
-            
-            Rt =  Ra + Rd + R_delta_psi  + Rvo
+
+            Rt =  Ra + Rd + R_delta_psi # + Rvo
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]
@@ -244,15 +261,28 @@ class BoatSimulator:
         return best_angle
 
     def state_dot(self, tau):
-        """Compute the derivative of the state vector"""
-        nu = self.state[3:]  # Velocity state [u, v, r]
-        psi = self.state[2]
+        nu = self.state[3:]  # [u, v, r]
+        psi = self.state[2]  # heading
 
-        eta_dot = Rzyx(0, 0, psi) @ nu
-        nu_dot = np.linalg.inv(M) @ (tau - N(nu) @ nu)
-        state_dot = np.concatenate([eta_dot, nu_dot])
-        return state_dot
-    
+        # Current velocity in NED (defined in world)
+        vc_ned = np.array([self.vcx, self.vcy, 0])
+
+        # Rotate current into body frame
+        R = Rzyx(0, 0, psi)
+        vc_body = R.T @ vc_ned  # inverse rotation
+
+        # Compute RELATIVE velocity (used for hydrodynamics)
+        nu_r = nu - vc_body  # relative to water!
+
+        # η̇ = transformation from body to inertial, using absolute body velocity
+        eta_dot = R @ nu
+
+        # ν̇ using relative velocity
+        nu_dot = np.linalg.inv(M) @ (tau - N(nu_r) @ nu_r)
+
+        return np.concatenate([eta_dot, nu_dot])
+
+
     def check_collision(self):
         x, y = self.state[:2]
         obstacles = self.lidar.obstacles
@@ -279,20 +309,24 @@ class BoatSimulator:
         self.forbidden_headings = tcpa_dcpa_vo_check(self.state, self.circular_obstacles, absolute_velocity, self.lidar.angles, 3*self.radius, self.lidar.max_range)
 
         psi_d = self.cri_obstacle_avoidance(psi_d)
+        psi_d = 0.3 * psi_d + 0.7 * self.prev_desired_heading
         self.prev_desired_heading = psi_d
 
         self.ColAv_desired_heading = psi_d
 
         pwm_out = self.combined_controller(psi_d, self.base_surge_velocity)  # Compute input forces and moments
-        
+
         tau = self.thrust_model(pwm_out)
 
 
         state_dot = self.state_dot(tau)
-        
+
         self.state[3:] += state_dot[3:] * self.dt  # Update velocity state first
         self.state[:3] += Rzyx(0, 0, self.state[2]) @ self.state[3:] * self.dt  # Update position using new velocity
 
         # Update moving obstacles
         for obs in self.circular_obstacles:
             obs.update_position(self.dt)
+
+        # Update GPS noise
+        self.gps_noise = np.random.normal(0, self.noise_std_dev, size=2)

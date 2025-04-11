@@ -6,6 +6,7 @@ class ScenarioGenerator:
         self.scenario_name = scenario_name
         self.waypoints = []
         self.circular_obstacles = []
+        self.isNoise = False
         self.setup_scenario()
     
     def setup_scenario(self):
@@ -45,6 +46,7 @@ class ScenarioGenerator:
         elif self.scenario_name == "CRI_vs_VO_one_static_one_moving_obstacle":
             self.waypoints = np.array([[0, 0], [45, 45]])
             self.circular_obstacles = [CircularObstacle(15, 15, 1, 0, 0), CircularObstacle(50, 10, 1, -0.52, 0.52)]
+            self.isNoise = True
         elif self.scenario_name == "CRI_vs_VO_moving_obstacle_head_on":
             self.waypoints = np.array([[0, 0], [45, 45]])
             self.circular_obstacles = [CircularObstacle(30, 30, 1, -0.5, -0.5)]
@@ -54,4 +56,4 @@ class ScenarioGenerator:
             self.circular_obstacles = [ CircularObstacle(15, 40, 2, 0.5, -0.5), CircularObstacle(30, 30, 2, 0, 0)]
     
     def get_scenario(self):
-        return self.waypoints, self.circular_obstacles
+        return self.waypoints, self.circular_obstacles, self.isNoise

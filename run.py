@@ -8,8 +8,8 @@ from render import Render
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("CRI_vs_VO_moving_obstacle_head_on")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
-waypoints, circular_obstacles = scenario.get_scenario()
+scenario = ScenarioGenerator("CRI_vs_VO_one_static_one_moving_obstacle")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
+waypoints, circular_obstacles, isNoise = scenario.get_scenario()
 
 render = Render(waypoints, circular_obstacles)
 
@@ -27,10 +27,10 @@ def animate(i):
         return render.prepare_plot_for_saving()
     boat.update()
 
-    if simulation_time[0] % 30 == 0:
-        output_folder = "log/frames"
-        output_filename = "frame_" + str(simulation_time[0]) + ".pdf"
-        render.save_plot_in_video(output_folder, output_filename, simulation_time[0])
+    # if simulation_time[0] % 30 == 0:
+    #     output_folder = "log/frames"
+    #     output_filename = "frame_" + str(simulation_time[0]) + ".pdf"
+    #     render.save_plot_in_video(output_folder, output_filename, simulation_time[0])
 
     csv_writer.writerow([simulation_time[0], boat.state[3], boat.state[4], boat.state[5], boat.pwm_left, boat.pwm_right, boat.pwm_diff, boat.cross_track_error, boat.prev_heading_error, boat.state[2], boat.ColAv_desired_heading, boat.LOS_desired_heading, boat.shortest_object_dist])
     simulation_time[0] += 1
@@ -38,7 +38,7 @@ def animate(i):
     return render.update_plot(boat)
 
 # Simulation setup
-boat = BoatSimulator(waypoints, circular_obstacles)
+boat = BoatSimulator(waypoints, circular_obstacles, isNoise)
 ani = animation.FuncAnimation(render.fig, animate, frames=600, interval=100, blit=False)
 
 # # Save the animation as a video,
