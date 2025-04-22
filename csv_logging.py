@@ -12,7 +12,7 @@ def open_csv_file():
     csv_file = open(csv_path, mode='w', newline='')
     csv_writer = csv.writer(csv_file)
 
-    csv_writer.writerow(["Time", "Surge", "Sway", "YawRate", "LeftPWM", "RightPWM", "DiffPWM", "CrossTrackError", "HeadingError", "Heading", "ColAvDesiredHeading", "LOSDesiredHeading", "ShortestObjectDist"])
+    csv_writer.writerow(["Time", "Surge", "Sway", "YawRate", "LeftPWM", "RightPWM", "DiffPWM", "CrossTrackError", "CrossTrackErrorNoNoise", "HeadingError", "Heading", "ColAvDesiredHeading", "LOSDesiredHeading", "ShortestObjectDist"])
     simulation_time = [0]  # Time tracker
 
     return log_dir, csv_file, csv_writer, simulation_time

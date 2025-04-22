@@ -50,6 +50,11 @@ class ScenarioGenerator:
         elif self.scenario_name == "CRI_vs_VO_moving_obstacle_head_on":
             self.waypoints = np.array([[0, 0], [45, 45]])
             self.circular_obstacles = [CircularObstacle(30, 30, 1, -0.5, -0.5)]
+            self.isNoise = True
+        elif self.scenario_name == "straight_line":
+            self.waypoints = np.array([[0, 0], [45, 45]])
+            self.circular_obstacles = []
+            self.isNoise = True
         else:
             # Default scenario
             self.waypoints = np.array([[10, 10], [50, 50]])

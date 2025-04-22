@@ -40,6 +40,9 @@ class BoatSimulator:
         self.current_wp_index = 0
         self.thresh_next_wp = 10.0
         self.los_lookahead = 15
+        self.ye_integral = 0.0
+        self.max_ye_integral = 1
+        self.kappa = 5
 
         # LiDAR and obstacles
         self.safety_distance = 1.0
@@ -61,23 +64,25 @@ class BoatSimulator:
         self.pwm_right = 0.0
         self.pwm_right = 0.0
         self.cross_track_error = 0.0
+        self.cross_track_error_no_noise = 0.0
         self.ColAv_desired_heading = 0.0
         self.LOS_desired_heading = 0.0
         self.shortest_object_dist = 0.0
 
         # Noise and disturbances
         if isNoise:
+            print("NOISE ADDED")
             # Velocity of water current
-            self.vcx = -0.1
-            self.vcy = 0.1
+            self.vcx = -0.3
+            self.vcy = 0.3
             # GPS noise
-            self.gps_noise_std_dev = 0.3
+            self.gps_noise_std_dev = 0.5
             self.gps_noise = np.random.normal(0, self.gps_noise_std_dev, size=2)
             # Object tracking noise
-            self.object_velocity_noise_std_dev = 0.3
+            self.object_velocity_noise_std_dev = 0.2
             self.object_velocity_noise = np.random.normal(0, self.object_velocity_noise_std_dev, size=2)
             # Heading noise
-            self.heading_noise_std_dev = np.deg2rad(0.5)
+            self.heading_noise_std_dev = np.deg2rad(1)
             self.heading_noise = np.random.normal(0, self.heading_noise_std_dev)
         else:
             # Velocity of water current
@@ -89,7 +94,10 @@ class BoatSimulator:
             # Object tracking noise
             self.object_velocity_noise_std_dev = 0
             self.object_velocity_noise = np.random.normal(0, self.object_velocity_noise_std_dev, size=2)
-
+            # Heading noise
+            self.heading_noise_std_dev = 0
+            self.heading_noise = np.random.normal(0, self.heading_noise_std_dev)
+            print("NO NOISE")
 
 
     def los_guidance(self):
@@ -109,6 +117,7 @@ class BoatSimulator:
 
         cross_track_error = (y - wp_curr[1]) * np.cos(pi_p) - (x - wp_curr[0]) * np.sin(pi_p)
         self.cross_track_error = cross_track_error
+        self.cross_track_error_no_noise = (self.state[1] - wp_curr[1]) * np.cos(pi_p) - (self.state[0] - wp_curr[0]) * np.sin(pi_p)
 
         psi_d = pi_p - np.arctan(cross_track_error / self.los_lookahead)
 
@@ -116,6 +125,41 @@ class BoatSimulator:
             self.current_wp_index += 1
 
         return psi_d
+    
+    def integral_los_guidance(self):
+        """Compute desired heading using Line of Sight (LOS)"""
+        if self.current_wp_index >= len(self.waypoints):
+            return self.state[2]
+
+        x, y = self.state[0] + self.gps_noise[0], self.state[1] + self.gps_noise[1]
+
+        wp_curr = self.waypoints[self.current_wp_index]
+        wp_next = self.waypoints[min(self.current_wp_index + 1, len(self.waypoints) - 1)]
+
+        dx = wp_next[0] - wp_curr[0]
+        dy = wp_next[1] - wp_curr[1]
+
+        pi_p = np.arctan2(dy, dx)
+
+        cross_track_error = (y - wp_curr[1]) * np.cos(pi_p) - (x - wp_curr[0]) * np.sin(pi_p)
+        self.cross_track_error = cross_track_error
+        self.cross_track_error_no_noise = (self.state[1] - wp_curr[1]) * np.cos(pi_p) - (self.state[0] - wp_curr[0]) * np.sin(pi_p)
+
+        psi_d = pi_p - np.arctan(cross_track_error / self.los_lookahead + self.kappa/self.los_lookahead * self.ye_integral)
+
+        self.ye_integral += (self.state[3]*self.cross_track_error)/np.sqrt(self.los_lookahead**2 + (self.cross_track_error + self.kappa*self.ye_integral)**2) * self.dt
+
+        if (self.ye_integral > self.max_ye_integral):
+            self.ye_integral = self.max_ye_integral
+        elif (self.ye_integral < -self.max_ye_integral):
+            self.ye_integral = -self.max_ye_integral
+
+        print(f"Integral LOS error:  {self.ye_integral}")
+
+        if np.hypot(x-wp_next[0], y-wp_next[1]) < self.thresh_next_wp:
+            self.current_wp_index += 1
+
+        return psi_d       
 
     def wp_guidance(self):
         """Compute desired heading using waypoint guidance"""
@@ -315,7 +359,8 @@ class BoatSimulator:
         # Find magnitude of vessels velocity
         absolute_velocity = np.sqrt(self.state[3]**2 + self.state[4]**2)
 
-        psi_d = self.los_guidance()
+        # psi_d = self.los_guidance()
+        psi_d = self.integral_los_guidance()
         # psi_d = self.wp_guidance()
         self.LOS_desired_heading = psi_d
 
