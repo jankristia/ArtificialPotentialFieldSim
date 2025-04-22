@@ -38,8 +38,9 @@ class ScenarioGenerator:
             self.waypoints = np.array([[5, 5], [30, 15], [40, 40], [10,50]])
             self.circular_obstacles = [CircularObstacle(20, 20, 3, 0, 0), CircularObstacle(35, 30, 4, 0, 0), CircularObstacle(45, 25, 2, 0, 0)]
         elif self.scenario_name == "no_obstacles":
-            self.waypoints = np.array([[5, 5], [30, 15], [40, 40], [10,50]])
+            self.waypoints = np.array([[0, 0], [30, 15], [40, 40], [10,50]])
             self.circular_obstacles = []
+            self.isNoise = False
         elif self.scenario_name == "one_large_obstacle":
             self.waypoints = np.array([[10, 10], [50, 50]])
             self.circular_obstacles = [CircularObstacle(34, 34, 5, 0, 0)]
@@ -51,7 +52,7 @@ class ScenarioGenerator:
             self.waypoints = np.array([[0, 0], [45, 45]])
             self.circular_obstacles = [CircularObstacle(30, 30, 1, -0.5, -0.5)]
             self.isNoise = True
-        elif self.scenario_name == "straight_line":
+        elif self.scenario_name == "straight_line_no_obstacles":
             self.waypoints = np.array([[0, 0], [45, 45]])
             self.circular_obstacles = []
             self.isNoise = True

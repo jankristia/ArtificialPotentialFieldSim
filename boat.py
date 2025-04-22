@@ -38,11 +38,11 @@ class BoatSimulator:
         # Waypoints and navigation
         self.waypoints = waypoints
         self.current_wp_index = 0
-        self.thresh_next_wp = 10.0
-        self.los_lookahead = 15
+        self.thresh_next_wp = 5
+        self.los_lookahead = 10
         self.ye_integral = 0.0
-        self.max_ye_integral = 1
-        self.kappa = 5
+        self.max_ye_integral = 5
+        self.kappa = 0.25
 
         # LiDAR and obstacles
         self.safety_distance = 1.0
@@ -71,10 +71,9 @@ class BoatSimulator:
 
         # Noise and disturbances
         if isNoise:
-            print("NOISE ADDED")
             # Velocity of water current
-            self.vcx = -0.3
-            self.vcy = 0.3
+            self.vcx = -0.2
+            self.vcy = 0.2
             # GPS noise
             self.gps_noise_std_dev = 0.5
             self.gps_noise = np.random.normal(0, self.gps_noise_std_dev, size=2)
@@ -97,8 +96,6 @@ class BoatSimulator:
             # Heading noise
             self.heading_noise_std_dev = 0
             self.heading_noise = np.random.normal(0, self.heading_noise_std_dev)
-            print("NO NOISE")
-
 
     def los_guidance(self):
         """Compute desired heading using Line of Sight (LOS)"""
@@ -147,14 +144,17 @@ class BoatSimulator:
 
         psi_d = pi_p - np.arctan(cross_track_error / self.los_lookahead + self.kappa/self.los_lookahead * self.ye_integral)
 
-        self.ye_integral += (self.state[3]*self.cross_track_error)/np.sqrt(self.los_lookahead**2 + (self.cross_track_error + self.kappa*self.ye_integral)**2) * self.dt
+        # self.ye_integral += (self.state[3]*self.cross_track_error)/np.sqrt(self.los_lookahead**2 + (self.cross_track_error + self.kappa*self.ye_integral)**2) * self.dt
+        self.ye_integral += 0.2*self.cross_track_error * self.dt
+        if abs(self.cross_track_error) < 0.3:
+            self.ye_integral *= (1 - 0.05)
 
         if (self.ye_integral > self.max_ye_integral):
             self.ye_integral = self.max_ye_integral
         elif (self.ye_integral < -self.max_ye_integral):
             self.ye_integral = -self.max_ye_integral
 
-        print(f"Integral LOS error:  {self.ye_integral}")
+        print(f"ye_integral: {self.ye_integral}")
 
         if np.hypot(x-wp_next[0], y-wp_next[1]) < self.thresh_next_wp:
             self.current_wp_index += 1
@@ -265,7 +265,7 @@ class BoatSimulator:
         if clusters_:
             merged_clusters = self.lidar.merge_clusters(clusters_)
             self.rectangle_obstacles = self.lidar.clusters_to_oriented_rectangles(self.state, merged_clusters)
-            self.expanded_retangles = self.lidar.expand_oriented_rectangles(self.rectangle_obstacles, self.radius)
+            self.expanded_retangles = self.lidar.expand_oriented_rectangles(self.rectangle_obstacles, self.radius*1.5)
         else:
             self.rectangle_obstacles = []
             self.expanded_retangles = []
@@ -274,8 +274,21 @@ class BoatSimulator:
 
         risk_list = []
         current_angle = self.state[2] + self.heading_noise
-        self.shortest_object_dist = np.min(distances)
 
+        # Find shortest distance to any object, for plotting
+        shortest_distance = np.inf
+        for obst in self.circular_obstacles:
+            obst_x = obst.x
+            obst_y = obst.y
+            obst_r = obst.radius
+
+            dist = np.hypot(obst_x - (self.state[0]), obst_y - (self.state[1]))
+            dist = dist - obst_r - self.radius
+            if dist < shortest_distance:
+                shortest_distance = dist
+            
+        self.shortest_object_dist = shortest_distance
+                
         for dist, angle in zip(self.distance_profile, self.candidate_headings):
             angle = angle + current_angle
             angle_diff = np.abs(np.arctan2(np.sin(psi_d - angle), np.cos(psi_d - angle)))
@@ -306,7 +319,7 @@ class BoatSimulator:
                     Rvo = 80
                     break
 
-            Rt =  Ra + Rd + R_delta_psi + Rvo
+            Rt =  Ra + Rd + R_delta_psi # + Rvo
             risk_list.append((Rt, angle))
 
         min_risk = min(risk_list, key=lambda x: x[0])[0]

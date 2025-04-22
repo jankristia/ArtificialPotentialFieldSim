@@ -8,7 +8,7 @@ from render import Render
 
 log_dir, csv_file, csv_writer, simulation_time = open_csv_file()
 
-scenario = ScenarioGenerator("straight_line")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
+scenario = ScenarioGenerator("no_obstacles")        # two_moving_obstacles, , moving_obstacle_crossing_left_right_and_front, moving_obstacle_crossing_left, moving_obstacle_crossing_right, moving_obstacle_head_on, moving_obstacle_overtaking, one_small_obstacle, complex_obstacles, two_obstacles, one_large_obstacle
 waypoints, circular_obstacles, isNoise = scenario.get_scenario()
 
 render = Render(waypoints, circular_obstacles)
